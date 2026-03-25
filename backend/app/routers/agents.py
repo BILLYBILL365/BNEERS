@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 try:
     from datetime import UTC
 except ImportError:
@@ -27,7 +28,7 @@ _agent_statuses: dict[str, dict] = {
 }
 
 class HeartbeatRequest(BaseModel):
-    status: str  # active | thinking | idle
+    status: Literal["active", "thinking", "idle"]
 
 class AgentStatus(BaseModel):
     agent_id: str

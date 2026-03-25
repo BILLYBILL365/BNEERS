@@ -2,6 +2,15 @@ import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app
 
+@pytest.fixture(autouse=True)
+def reset_agent_statuses():
+    from app.routers.agents import KNOWN_AGENTS, _agent_statuses
+    _agent_statuses.clear()
+    _agent_statuses.update({
+        agent_id: {"agent_id": agent_id, "status": "idle", "last_seen": None}
+        for agent_id in KNOWN_AGENTS
+    })
+
 @pytest.fixture
 async def client():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
