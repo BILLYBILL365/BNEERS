@@ -1,4 +1,3 @@
-import json
 import asyncio
 from collections import defaultdict
 from collections.abc import Callable, Awaitable
