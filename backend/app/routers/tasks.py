@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.task import Task
 from app.schemas.task import TaskCreate, TaskRead, TaskUpdate
+from app.services.bus import manager
+from app.schemas.events import BusEvent
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -22,6 +24,8 @@ async def create_task(body: TaskCreate, db: AsyncSession = Depends(get_db)):
     db.add(task)
     await db.commit()
     await db.refresh(task)
+    event = BusEvent(type="task.created", payload={"task_id": task.id, "title": task.title, "agent_id": task.agent_id})
+    await manager.broadcast(event)
     return task
 
 
