@@ -21,7 +21,7 @@ KNOWN_AGENTS = [
     "support_agent", "task_coordinator",
 ]
 
-# In-memory store — replaced by Redis in Phase 2
+# In-process status store — written by AgentRunner (agent.status bus events) and the heartbeat endpoint
 _agent_statuses: dict[str, dict] = {
     agent_id: {"agent_id": agent_id, "status": "idle", "last_seen": None}
     for agent_id in KNOWN_AGENTS
