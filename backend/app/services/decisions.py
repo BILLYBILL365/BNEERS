@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models.decision import Decision, DecisionStatus
@@ -49,6 +48,11 @@ class DecisionService:
             payload=payload,
         )
 
+    # NOTE: _on_resolved intentionally does NOT update the Decision DB row.
+    # The router already updated the row (status, decided_by, decided_at) before
+    # publishing the decision.approved / decision.rejected bus event, so a second
+    # write here would be redundant.  If this event is ever fired from a source
+    # other than the router, the DB row will be stale and must be updated elsewhere.
     async def _on_resolved(self, event: BusEvent) -> None:
         payload = event.payload
         await self._audit.log(
