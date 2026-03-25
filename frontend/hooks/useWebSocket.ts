@@ -7,6 +7,7 @@ const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8000";
 export function useWebSocket(onEvent: (event: BusEvent) => void) {
   const wsRef = useRef<WebSocket | null>(null);
   const onEventRef = useRef(onEvent);
+  const shouldReconnect = useRef(true);
   onEventRef.current = onEvent;
 
   const connect = useCallback(() => {
@@ -21,14 +22,20 @@ export function useWebSocket(onEvent: (event: BusEvent) => void) {
     };
 
     ws.onclose = () => {
-      setTimeout(connect, 2000);
+      if (shouldReconnect.current) {
+        setTimeout(connect, 2000);
+      }
     };
 
     return ws;
   }, []);
 
   useEffect(() => {
+    shouldReconnect.current = true;
     const ws = connect();
-    return () => ws.close();
+    return () => {
+      shouldReconnect.current = false;
+      ws.close();
+    };
   }, [connect]);
 }

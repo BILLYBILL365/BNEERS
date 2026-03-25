@@ -35,3 +35,11 @@ export interface BusEvent {
   payload: Record<string, unknown>;
   timestamp: string;
 }
+
+export interface KPIs {
+  weekly_revenue: number;
+  active_customers: number;
+  tasks_in_progress: number;
+  pending_approvals: number;
+  active_agents: number;
+}

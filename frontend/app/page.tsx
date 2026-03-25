@@ -38,13 +38,21 @@ export default function MissionControl() {
   }, [refresh]));
 
   const handleApprove = async (id: string) => {
-    await api.decisions.approve(id);
-    await refresh();
+    try {
+      await api.decisions.approve(id);
+      await refresh();
+    } catch (err) {
+      console.error("Failed to approve decision:", err);
+    }
   };
 
   const handleReject = async (id: string) => {
-    await api.decisions.reject(id);
-    await refresh();
+    try {
+      await api.decisions.reject(id);
+      await refresh();
+    } catch (err) {
+      console.error("Failed to reject decision:", err);
+    }
   };
 
   const activeAgents = agents.filter((a) => a.status === "active").length;
