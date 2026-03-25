@@ -1,6 +1,9 @@
+import logging
 from typing import ClassVar
 from fastapi import WebSocket
 from app.schemas.events import BusEvent
+
+logger = logging.getLogger(__name__)
 
 class ConnectionManager:
     _instance: ClassVar["ConnectionManager | None"] = None
@@ -21,6 +24,8 @@ class ConnectionManager:
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
+        else:
+            logger.warning("disconnect called on untracked websocket — possible double-disconnect")
 
     async def broadcast(self, event: BusEvent):
         data = event.model_dump_json()
@@ -28,7 +33,8 @@ class ConnectionManager:
         for ws in self.active_connections:
             try:
                 await ws.send_text(data)
-            except Exception:
+            except Exception as exc:
+                logger.warning("broadcast failed for a connection, removing: %s", exc)
                 dead.append(ws)
         for ws in dead:
             self.active_connections.remove(ws)
