@@ -7,6 +7,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.decision import Decision, DecisionStatus
 from app.schemas.decision import DecisionCreate, DecisionRead
+from app.schemas.events import BusEvent
+from app.redis_bus import RedisBus
+
+# Bus singleton — initialized at startup by AgentRunner, None until then
+_bus: RedisBus | None = None
+
+
+def set_bus(bus: RedisBus) -> None:
+    global _bus
+    _bus = bus
+
 
 router = APIRouter(prefix="/decisions", tags=["decisions"])
 
@@ -41,6 +52,11 @@ async def approve_decision(decision_id: str, db: AsyncSession = Depends(get_db))
     decision.decided_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(decision)
+    if _bus:
+        await _bus.publish(BusEvent(
+            type="decision.approved",
+            payload={"decision_id": decision_id, "title": decision.title, "decided_by": "board"},
+        ))
     return decision
 
 
@@ -56,4 +72,9 @@ async def reject_decision(decision_id: str, db: AsyncSession = Depends(get_db)):
     decision.decided_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(decision)
+    if _bus:
+        await _bus.publish(BusEvent(
+            type="decision.rejected",
+            payload={"decision_id": decision_id, "title": decision.title, "decided_by": "board"},
+        ))
     return decision
