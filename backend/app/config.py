@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     REDIS_URL: str
     SECRET_KEY: str
     ENVIRONMENT: str = "development"
+    TESTING: bool = False
 
     # Spending caps (USD)
     DAILY_HARD_CAP_ADS: float = 100.0
