@@ -2,15 +2,11 @@ from __future__ import annotations
 
 import uuid
 import enum
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 from sqlalchemy import String, Enum, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
-from app.models import Base
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+from app.models import Base, _utcnow
 
 
 class TaskStatus(str, enum.Enum):
