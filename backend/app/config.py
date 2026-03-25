@@ -18,5 +18,11 @@ class Settings(BaseSettings):
     # Agent heartbeat timeout (seconds)
     AGENT_HEARTBEAT_TIMEOUT: int = 120
 
+    ANTHROPIC_API_KEY: str = ""
+
+    # Model selection
+    LLM_MODEL_SMART: str = "claude-sonnet-4-6"
+    LLM_MODEL_FAST: str = "claude-haiku-4-5-20251001"
+
 def get_settings() -> Settings:
     return Settings()

@@ -20,3 +20,15 @@ def test_settings_spending_caps_configurable():
         DAILY_HARD_CAP_ADS=200,
     )
     assert s.DAILY_HARD_CAP_ADS == 200
+
+def test_config_has_llm_fields():
+    from app.config import Settings
+    s = Settings(
+        DATABASE_URL="postgresql+asyncpg://x:x@localhost/x",
+        REDIS_URL="redis://localhost:6379/0",
+        SECRET_KEY="x",
+        ANTHROPIC_API_KEY="sk-ant-test",
+    )
+    assert s.ANTHROPIC_API_KEY == "sk-ant-test"
+    assert s.LLM_MODEL_SMART == "claude-sonnet-4-6"
+    assert s.LLM_MODEL_FAST == "claude-haiku-4-5-20251001"
