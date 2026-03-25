@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import tasks, decisions
+from app.routers import tasks, decisions, agents
 
 app = FastAPI(title="Project Million", version="0.1.0")
 
@@ -13,6 +13,7 @@ app.add_middleware(
 
 app.include_router(tasks.router)
 app.include_router(decisions.router)
+app.include_router(agents.router)
 
 
 @app.get("/health")
