@@ -61,6 +61,19 @@ async def test_reject_decision(client):
     resp = await client.post(f"/decisions/{decision_id}/reject")
     assert resp.status_code == 200
     assert resp.json()["status"] == "rejected"
+    assert resp.json()["decided_by"] == "board"
+
+@pytest.mark.asyncio
+async def test_cannot_approve_already_resolved_decision(client):
+    create = await client.post("/decisions", json={
+        "title": "Already approved",
+        "description": "Should not be approvable twice",
+        "requested_by": "cso",
+    })
+    decision_id = create.json()["id"]
+    await client.post(f"/decisions/{decision_id}/approve")
+    resp = await client.post(f"/decisions/{decision_id}/approve")
+    assert resp.status_code == 409
 
 @pytest.mark.asyncio
 async def test_list_pending_decisions(client):

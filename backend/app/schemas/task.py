@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pydantic import BaseModel
 from app.models.task import TaskStatus
 
@@ -21,4 +22,5 @@ class TaskRead(BaseModel):
     agent_id: str
     parent_agent_id: str | None
     status: TaskStatus
+    created_at: datetime
     model_config = {"from_attributes": True}

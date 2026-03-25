@@ -35,7 +35,7 @@ async def approve_decision(decision_id: str, db: AsyncSession = Depends(get_db))
     if not decision:
         raise HTTPException(status_code=404, detail="Decision not found")
     if decision.status != DecisionStatus.PENDING:
-        raise HTTPException(status_code=400, detail="Decision already resolved")
+        raise HTTPException(status_code=409, detail="Decision already resolved")
     decision.status = DecisionStatus.APPROVED
     decision.decided_by = "board"
     decision.decided_at = datetime.now(timezone.utc)
@@ -50,7 +50,7 @@ async def reject_decision(decision_id: str, db: AsyncSession = Depends(get_db)):
     if not decision:
         raise HTTPException(status_code=404, detail="Decision not found")
     if decision.status != DecisionStatus.PENDING:
-        raise HTTPException(status_code=400, detail="Decision already resolved")
+        raise HTTPException(status_code=409, detail="Decision already resolved")
     decision.status = DecisionStatus.REJECTED
     decision.decided_by = "board"
     decision.decided_at = datetime.now(timezone.utc)
