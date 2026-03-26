@@ -20,3 +20,22 @@ def test_backend_dockerfile_exists():
         timeout=300,
     )
     assert result.returncode == 0, f"docker build failed:\n{result.stderr}"
+
+
+def test_env_example_covers_all_settings_fields():
+    """Every required Settings field must appear in .env.example."""
+    env_example_path = os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../.env.example")
+    )
+    with open(env_example_path) as f:
+        content = f.read()
+
+    # These fields have no default in Settings and MUST be documented
+    required_vars = [
+        "DATABASE_URL",
+        "REDIS_URL",
+        "SECRET_KEY",
+        "ANTHROPIC_API_KEY",
+    ]
+    for var in required_vars:
+        assert var in content, f"{var} missing from .env.example"
