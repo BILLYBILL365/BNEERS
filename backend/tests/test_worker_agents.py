@@ -2,6 +2,9 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from app.agents.workers.market_scanner import MarketScanner, MarketScanResult, MarketOpportunity
 from app.agents.workers.opportunity_evaluator import OpportunityEvaluator, EvaluationResult
+from app.agents.workers.code_writer import CodeWriter, CodeScaffold
+from app.agents.workers.qa_tester import QATester, TestPlan
+from app.agents.workers.devops import DevOps, DeploymentConfig
 
 
 def make_llm(return_value):
@@ -73,3 +76,54 @@ async def test_opportunity_evaluator_handles_single_opportunity():
     evaluator = OpportunityEvaluator()
     result = await evaluator.evaluate(opps)
     assert result.top_opportunity.name == "Only option"
+
+
+@pytest.mark.asyncio
+async def test_code_writer_returns_scaffold():
+    scaffold = CodeScaffold(
+        project_structure=["src/main.py", "src/models.py"],
+        main_code="# main entry point\n",
+        dependencies=["fastapi", "sqlalchemy"],
+        setup_instructions="pip install -r requirements.txt",
+    )
+    llm = make_llm(scaffold)
+    writer = CodeWriter(llm=llm)
+    result = await writer.write(
+        product_name="B2B Invoicing",
+        product_description="Automated invoicing SaaS",
+    )
+    assert isinstance(result, CodeScaffold)
+    assert "fastapi" in result.dependencies
+    llm.call.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_qa_tester_returns_test_plan():
+    plan = TestPlan(
+        test_cases=["test_create_invoice", "test_send_invoice"],
+        testing_framework="pytest",
+        coverage_target=80,
+    )
+    llm = make_llm(plan)
+    tester = QATester(llm=llm)
+    result = await tester.create_plan(
+        product_name="B2B Invoicing",
+        code_files=["src/main.py"],
+    )
+    assert isinstance(result, TestPlan)
+    assert result.coverage_target == 80
+
+
+@pytest.mark.asyncio
+async def test_devops_returns_deployment_config():
+    config = DeploymentConfig(
+        dockerfile="FROM python:3.12\n...",
+        railway_config={"build": {"builder": "dockerfile"}},
+        environment_variables=["DATABASE_URL", "REDIS_URL"],
+        deploy_steps=["build", "migrate", "start"],
+    )
+    llm = make_llm(config)
+    devops = DevOps(llm=llm)
+    result = await devops.create_config(product_name="B2B Invoicing")
+    assert isinstance(result, DeploymentConfig)
+    assert "DATABASE_URL" in result.environment_variables
