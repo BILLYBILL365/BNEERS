@@ -54,18 +54,23 @@ class BaseAgent:
     async def publish(self, event: BusEvent) -> None:
         await self._bus.publish(event)
 
-    async def request_decision(self, title: str, description: str) -> str:
+    async def request_decision(
+        self,
+        title: str,
+        description: str,
+        extra_payload: dict | None = None,
+    ) -> str:
         """Post a decision.pending event and return the decision_id."""
         decision_id = str(uuid.uuid4())
-        event = BusEvent(
-            type="decision.pending",
-            payload={
-                "decision_id": decision_id,
-                "title": title,
-                "description": description,
-                "requested_by": self.agent_id,
-            },
-        )
+        payload = {
+            "decision_id": decision_id,
+            "title": title,
+            "description": description,
+            "requested_by": self.agent_id,
+        }
+        if extra_payload:
+            payload.update(extra_payload)
+        event = BusEvent(type="decision.pending", payload=payload)
         await self._bus.publish(event)
         await self._audit.log(
             agent_id=self.agent_id,
