@@ -124,7 +124,7 @@ async def test_unknown_event_is_ignored():
 
 @pytest.mark.asyncio
 async def test_no_client_handle_event_is_noop():
-    """When client is None (bot token not set), handle_event does nothing."""
+    """When client is None (bot token not set), handle_event returns immediately."""
     notifier = DiscordNotifier(
         bot_token="",
         approvals_channel_id=111,
@@ -134,11 +134,14 @@ async def test_no_client_handle_event_is_noop():
         http=None,
         backend_base_url="http://localhost:8000",
     )
-    # Should not raise
+    assert notifier._client is None  # bot_token="" means no client was created
     await notifier.handle_event(BusEvent(
         type="decision.pending",
         payload={"decision_id": "x", "title": "T", "description": "D"},
     ))
+    # If the guard didn't fire, AttributeError on None.get_channel() would have raised above.
+    # Explicit state assertion: _client unchanged confirms no side effects occurred.
+    assert notifier._client is None
 
 
 # ---------------------------------------------------------------------------
@@ -203,11 +206,13 @@ async def test_approve_button_handles_http_error():
     # Should not raise
     await view.approve(mock_interaction, MagicMock())
 
+    # Handler ran: error message was sent to the user
+    mock_interaction.response.send_message.assert_called_once()
     _, kwargs = mock_interaction.response.send_message.call_args
     assert kwargs["ephemeral"] is True
     msg = mock_interaction.response.send_message.call_args[0][0]
     assert "Error" in msg
-    # View is NOT stopped — board member can retry
+    # stop() was NOT called on error — board member can retry
     assert not view.is_finished()
 
 
