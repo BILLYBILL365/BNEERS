@@ -6,6 +6,7 @@ from app.models import Base
 from app.redis_bus import RedisBus
 from app.schemas.events import BusEvent
 from app.services.audit import AuditService
+from app.services.spend_tracker import SpendTracker
 from app.agents.cso import CSO
 from app.agents.cto import CTO
 from app.agents.cmo import CMO
@@ -52,14 +53,22 @@ async def audit(session_factory):
     (COO, "coo"),
 ])
 async def test_agent_has_correct_id(AgentClass, expected_id, bus, audit):
-    agent = AgentClass(bus=bus, audit=audit)
+    if AgentClass == CFO:
+        spend_tracker = SpendTracker(bus=bus, daily_cap_ads=1000.0, daily_cap_apis=500.0)
+        agent = AgentClass(bus=bus, audit=audit, spend_tracker=spend_tracker, weekly_soft_cap=500.0)
+    else:
+        agent = AgentClass(bus=bus, audit=audit)
     assert agent.agent_id == expected_id
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("AgentClass", [CSO, CTO, CMO, CFO, COO])
 async def test_agent_starts_without_error(AgentClass, bus, audit):
-    agent = AgentClass(bus=bus, audit=audit)
+    if AgentClass == CFO:
+        spend_tracker = SpendTracker(bus=bus, daily_cap_ads=1000.0, daily_cap_apis=500.0)
+        agent = AgentClass(bus=bus, audit=audit, spend_tracker=spend_tracker, weekly_soft_cap=500.0)
+    else:
+        agent = AgentClass(bus=bus, audit=audit)
     await agent.start()
     assert agent._running is True
 
@@ -67,7 +76,11 @@ async def test_agent_starts_without_error(AgentClass, bus, audit):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("AgentClass", [CSO, CTO, CMO, CFO, COO])
 async def test_agent_emits_status_on_start(AgentClass, bus, audit):
-    agent = AgentClass(bus=bus, audit=audit)
+    if AgentClass == CFO:
+        spend_tracker = SpendTracker(bus=bus, daily_cap_ads=1000.0, daily_cap_apis=500.0)
+        agent = AgentClass(bus=bus, audit=audit, spend_tracker=spend_tracker, weekly_soft_cap=500.0)
+    else:
+        agent = AgentClass(bus=bus, audit=audit)
     await agent.start()
 
     status_found = False
@@ -92,7 +105,8 @@ async def test_cso_subscribes_to_decision_events(bus, audit):
 
 @pytest.mark.asyncio
 async def test_cfo_subscribes_to_task_events(bus, audit):
-    cfo = CFO(bus=bus, audit=audit)
+    spend_tracker = SpendTracker(bus=bus, daily_cap_ads=1000.0, daily_cap_apis=500.0)
+    cfo = CFO(bus=bus, audit=audit, spend_tracker=spend_tracker, weekly_soft_cap=500.0)
     await cfo.start()
     assert "task.completed" in bus._handlers
 

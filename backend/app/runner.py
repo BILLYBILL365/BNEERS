@@ -11,6 +11,7 @@ from app.agents.coo import COO
 from app.redis_bus import RedisBus
 from app.schemas.events import BusEvent
 from app.services.audit import AuditService
+from app.services.spend_tracker import SpendTracker
 
 CSUITE_CLASSES = [CSO, CTO, CMO, CFO, COO]
 
@@ -39,7 +40,12 @@ class AgentRunner:
 
         # Instantiate and start all C-Suite agents
         for AgentClass in CSUITE_CLASSES:
-            agent = AgentClass(bus=self._bus, audit=self._audit)
+            if AgentClass == CFO:
+                # CFO requires spend_tracker and weekly_soft_cap
+                spend_tracker = SpendTracker(bus=self._bus, daily_cap_ads=1000.0, daily_cap_apis=500.0)
+                agent = AgentClass(bus=self._bus, audit=self._audit, spend_tracker=spend_tracker, weekly_soft_cap=500.0)
+            else:
+                agent = AgentClass(bus=self._bus, audit=self._audit)
             self.agents[agent.agent_id] = agent
             await agent.start()
 
