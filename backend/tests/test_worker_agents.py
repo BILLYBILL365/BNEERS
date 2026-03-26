@@ -5,6 +5,9 @@ from app.agents.workers.opportunity_evaluator import OpportunityEvaluator, Evalu
 from app.agents.workers.code_writer import CodeWriter, CodeScaffold
 from app.agents.workers.qa_tester import QATester, TestPlan
 from app.agents.workers.devops import DevOps, DeploymentConfig
+from app.agents.workers.content_writer import ContentWriter, ContentPackage
+from app.agents.workers.ad_manager import AdManager, AdCopy
+from app.agents.workers.social_media import SocialMedia, SocialPosts
 
 
 def make_llm(return_value):
@@ -127,3 +130,46 @@ async def test_devops_returns_deployment_config():
     result = await devops.create_config(product_name="B2B Invoicing")
     assert isinstance(result, DeploymentConfig)
     assert "DATABASE_URL" in result.environment_variables
+
+
+@pytest.mark.asyncio
+async def test_content_writer_returns_package():
+    pkg = ContentPackage(
+        landing_page_headline="Invoice faster, get paid sooner",
+        landing_page_body="10 sentences of copy...",
+        blog_post_titles=["5 ways to reduce late payments"],
+        email_subject="Stop chasing invoices",
+    )
+    llm = make_llm(pkg)
+    writer = ContentWriter(llm=llm)
+    result = await writer.create(product_name="B2B Invoicing", target_market="SMB")
+    assert isinstance(result, ContentPackage)
+    assert result.email_subject != ""
+
+
+@pytest.mark.asyncio
+async def test_ad_manager_returns_ad_copy():
+    copy = AdCopy(
+        headline="Automate your invoicing",
+        body="Never chase a payment again.",
+        cta="Start free trial",
+        estimated_cpc=2.50,
+    )
+    llm = make_llm(copy)
+    mgr = AdManager(llm=llm)
+    result = await mgr.create_ad(product_name="B2B Invoicing", budget=50.0)
+    assert isinstance(result, AdCopy)
+    assert result.estimated_cpc > 0
+
+
+@pytest.mark.asyncio
+async def test_social_media_returns_posts():
+    posts = SocialPosts(
+        twitter=["Check out our new invoicing tool! #SaaS"],
+        linkedin=["We just launched B2B Invoicing..."],
+    )
+    llm = make_llm(posts)
+    social = SocialMedia(llm=llm)
+    result = await social.create_posts(product_name="B2B Invoicing")
+    assert isinstance(result, SocialPosts)
+    assert len(result.twitter) > 0
