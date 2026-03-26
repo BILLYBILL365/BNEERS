@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 from app.agents.workers.market_scanner import MarketScanner, MarketScanResult, MarketOpportunity
 from app.agents.workers.opportunity_evaluator import OpportunityEvaluator, EvaluationResult
 from app.agents.workers.code_writer import CodeWriter, CodeScaffold
-from app.agents.workers.qa_tester import QATester, TestPlan
+from app.agents.workers.qa_tester import QATester, QATestPlan
 from app.agents.workers.devops import DevOps, DeploymentConfig
 from app.agents.workers.content_writer import ContentWriter, ContentPackage
 from app.agents.workers.ad_manager import AdManager, AdCopy
@@ -102,7 +102,7 @@ async def test_code_writer_returns_scaffold():
 
 @pytest.mark.asyncio
 async def test_qa_tester_returns_test_plan():
-    plan = TestPlan(
+    plan = QATestPlan(
         test_cases=["test_create_invoice", "test_send_invoice"],
         testing_framework="pytest",
         coverage_target=80,
@@ -113,7 +113,7 @@ async def test_qa_tester_returns_test_plan():
         product_name="B2B Invoicing",
         code_files=["src/main.py"],
     )
-    assert isinstance(result, TestPlan)
+    assert isinstance(result, QATestPlan)
     assert result.coverage_target == 80
 
 

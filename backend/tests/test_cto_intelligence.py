@@ -9,7 +9,7 @@ from app.schemas.events import BusEvent
 from app.services.audit import AuditService
 from app.agents.cto import CTO
 from app.agents.workers.code_writer import CodeScaffold
-from app.agents.workers.qa_tester import TestPlan
+from app.agents.workers.qa_tester import QATestPlan
 from app.agents.workers.devops import DeploymentConfig
 
 TEST_DB = "sqlite+aiosqlite:///:memory:"
@@ -41,7 +41,7 @@ def make_cto(bus, audit):
             dependencies=["fastapi"],
             setup_instructions="pip install",
         ),
-        TestPlan(test_cases=["test_create"], testing_framework="pytest", coverage_target=80),
+        QATestPlan(test_cases=["test_create"], testing_framework="pytest", coverage_target=80),
         DeploymentConfig(
             dockerfile="FROM python:3.12",
             railway_config={},

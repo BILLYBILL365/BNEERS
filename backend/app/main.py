@@ -41,6 +41,8 @@ async def lifespan(app: FastAPI):
         weekly_soft_cap=settings.WEEKLY_SOFT_CAP_TOTAL,
         daily_cap_ads=settings.DAILY_HARD_CAP_ADS,
         daily_cap_apis=settings.DAILY_HARD_CAP_APIS,
+        model_smart=settings.LLM_MODEL_SMART,
+        model_fast=settings.LLM_MODEL_FAST,
     )
     runner.status_store = _agent_statuses
     await runner.start()

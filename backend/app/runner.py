@@ -26,6 +26,8 @@ class AgentRunner:
         weekly_soft_cap: float = 500.0,
         daily_cap_ads: float = 100.0,
         daily_cap_apis: float = 50.0,
+        model_smart: str = "claude-sonnet-4-6",
+        model_fast: str = "claude-haiku-4-5-20251001",
     ) -> None:
         self._bus = bus
         self._audit = audit
@@ -37,8 +39,8 @@ class AgentRunner:
         if anthropic_api_key:
             from anthropic import AsyncAnthropic
             client = AsyncAnthropic(api_key=anthropic_api_key)
-            llm_smart = LLMService(client=client, model="claude-sonnet-4-6")
-            llm_fast = LLMService(client=client, model="claude-haiku-4-5-20251001")
+            llm_smart = LLMService(client=client, model=model_smart)
+            llm_fast = LLMService(client=client, model=model_fast)
 
         spend_tracker = SpendTracker(
             bus=bus, daily_cap_ads=daily_cap_ads, daily_cap_apis=daily_cap_apis

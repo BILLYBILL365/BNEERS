@@ -21,7 +21,7 @@ from app.agents.cfo import CFO
 from app.agents.coo import COO
 from app.agents.workers.market_scanner import MarketOpportunity, MarketScanResult
 from app.agents.workers.code_writer import CodeScaffold
-from app.agents.workers.qa_tester import TestPlan
+from app.agents.workers.qa_tester import QATestPlan
 from app.agents.workers.devops import DeploymentConfig
 from app.agents.workers.content_writer import ContentPackage
 from app.agents.workers.ad_manager import AdCopy
@@ -78,7 +78,7 @@ def make_cto_llm():
     llm.call = AsyncMock(side_effect=[
         CodeScaffold(project_structure=["src/main.py"], main_code="# entry",
                      dependencies=["fastapi"], setup_instructions="pip install"),
-        TestPlan(test_cases=["test_invoice"], testing_framework="pytest", coverage_target=80),
+        QATestPlan(test_cases=["test_invoice"], testing_framework="pytest", coverage_target=80),
         DeploymentConfig(dockerfile="FROM python:3.12", railway_config={},
                          environment_variables=["DATABASE_URL"], deploy_steps=["build", "start"]),
     ])
