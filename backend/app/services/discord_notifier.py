@@ -28,6 +28,7 @@ class ApprovalView(discord.ui.View):
         self._http = http
         self._base_url = base_url.rstrip("/")
 
+    @discord.ui.button(label="Approve", style=discord.ButtonStyle.green)
     async def approve(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         try:
             await self._http.post(f"{self._base_url}/decisions/{self._decision_id}/approve")
@@ -36,6 +37,7 @@ class ApprovalView(discord.ui.View):
         except Exception as exc:  # noqa: BLE001
             await interaction.response.send_message(f"Error: {exc}", ephemeral=True)
 
+    @discord.ui.button(label="Reject", style=discord.ButtonStyle.red)
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         try:
             await self._http.post(f"{self._base_url}/decisions/{self._decision_id}/reject")
@@ -44,10 +46,10 @@ class ApprovalView(discord.ui.View):
         except Exception as exc:  # noqa: BLE001
             await interaction.response.send_message(f"Error: {exc}", ephemeral=True)
 
-
-# Apply button decorators to the methods for Discord UI registration
-ApprovalView.approve = discord.ui.button(label="Approve", style=discord.ButtonStyle.green)(ApprovalView.approve)
-ApprovalView.reject = discord.ui.button(label="Reject", style=discord.ButtonStyle.red)(ApprovalView.reject)
+    async def on_timeout(self) -> None:
+        """Disable buttons after timeout so stale messages don't mislead the board."""
+        for item in self.children:
+            item.disabled = True  # type: ignore[attr-defined]
 
 
 class DiscordNotifier:

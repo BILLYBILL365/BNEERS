@@ -162,7 +162,7 @@ async def test_approve_button_calls_approve_endpoint():
     mock_interaction = AsyncMock()
     mock_interaction.response = AsyncMock()
 
-    await view.approve(mock_interaction, MagicMock())
+    await ApprovalView.__dict__["approve"](view, mock_interaction, MagicMock())
 
     mock_http.post.assert_called_once_with("http://localhost:8000/decisions/abc123/approve")
     mock_interaction.response.send_message.assert_called_once_with("Decision approved.", ephemeral=True)
@@ -182,7 +182,7 @@ async def test_reject_button_calls_reject_endpoint():
     mock_interaction = AsyncMock()
     mock_interaction.response = AsyncMock()
 
-    await view.reject(mock_interaction, MagicMock())
+    await ApprovalView.__dict__["reject"](view, mock_interaction, MagicMock())
 
     mock_http.post.assert_called_once_with("http://localhost:8000/decisions/xyz789/reject")
     mock_interaction.response.send_message.assert_called_once_with("Decision rejected.", ephemeral=True)
@@ -204,7 +204,7 @@ async def test_approve_button_handles_http_error():
     mock_interaction.response = AsyncMock()
 
     # Should not raise
-    await view.approve(mock_interaction, MagicMock())
+    await ApprovalView.__dict__["approve"](view, mock_interaction, MagicMock())
 
     # Handler ran: error message was sent to the user
     mock_interaction.response.send_message.assert_called_once()
