@@ -1,4 +1,5 @@
 """Smoke tests that verify Docker and config are correctly set up."""
+import json
 import os
 import shutil
 import subprocess
@@ -39,3 +40,24 @@ def test_env_example_covers_all_settings_fields():
     ]
     for var in required_vars:
         assert var in content, f"{var} missing from .env.example"
+
+
+def test_backend_railway_json_is_valid():
+    # backend/tests/ → backend/railway.json (one level up)
+    path = os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "../railway.json")
+    )
+    with open(path) as f:
+        data = json.load(f)
+    assert data["deploy"]["healthcheckPath"] == "/health"
+    assert "alembic upgrade head" in data["deploy"]["startCommand"]
+
+
+def test_frontend_railway_json_is_valid():
+    # backend/tests/ → backend/ → project root → frontend/railway.json
+    path = os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../frontend/railway.json")
+    )
+    with open(path) as f:
+        data = json.load(f)
+    assert data["build"]["builder"] == "DOCKERFILE"
