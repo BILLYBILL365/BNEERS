@@ -63,13 +63,12 @@ class BaseAgent:
         """Post a decision.pending event and return the decision_id."""
         decision_id = str(uuid.uuid4())
         payload = {
+            **(extra_payload or {}),
             "decision_id": decision_id,
             "title": title,
             "description": description,
             "requested_by": self.agent_id,
         }
-        if extra_payload:
-            payload.update(extra_payload)
         event = BusEvent(type="decision.pending", payload=payload)
         await self._bus.publish(event)
         await self._audit.log(

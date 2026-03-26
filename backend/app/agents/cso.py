@@ -42,34 +42,42 @@ class CSO(BaseAgent):
 
     async def _run_market_research(self) -> None:
         if self._scanner is None:
+            await self._audit.log(
+                agent_id=self.agent_id,
+                event_type="market_research_skipped",
+                payload={"reason": "no LLM configured"},
+                outcome="skipped",
+            )
             return
         await self._emit_status("thinking")
-        scan_result = await self.with_retry(
-            lambda: self._scanner.scan(),
-            context="market_scan",
-        )
-        evaluation = await self._evaluator.evaluate(scan_result.opportunities)
-        top = evaluation.top_opportunity
-        await self._audit.log(
-            agent_id=self.agent_id,
-            event_type="market_research_complete",
-            payload={"top_opportunity": top.name, "rationale": evaluation.rationale},
-            outcome="success",
-        )
-        await self.request_decision(
-            title=f"Pursue opportunity: {top.name}",
-            description=(
-                f"{evaluation.rationale}\n\n"
-                f"ARR estimate: ${top.estimated_arr:,.0f}. "
-                f"Target market: {top.target_market}."
-            ),
-            extra_payload={
-                "task": "approve_opportunity",
-                "opportunity_name": top.name,
-                "opportunity_description": top.description,
-            },
-        )
-        await self._emit_status("active")
+        try:
+            scan_result = await self.with_retry(
+                lambda: self._scanner.scan(),
+                context="market_scan",
+            )
+            evaluation = await self._evaluator.evaluate(scan_result.opportunities)
+            top = evaluation.top_opportunity
+            await self._audit.log(
+                agent_id=self.agent_id,
+                event_type="market_research_complete",
+                payload={"top_opportunity": top.name, "rationale": evaluation.rationale},
+                outcome="success",
+            )
+            await self.request_decision(
+                title=f"Pursue opportunity: {top.name}",
+                description=(
+                    f"{evaluation.rationale}\n\n"
+                    f"ARR estimate: ${top.estimated_arr:,.0f}. "
+                    f"Target market: {top.target_market}."
+                ),
+                extra_payload={
+                    "task": "approve_opportunity",
+                    "opportunity_name": top.name,
+                    "opportunity_description": top.description,
+                },
+            )
+        finally:
+            await self._emit_status("active")
 
     async def _on_opportunity_approved(self, event: BusEvent) -> None:
         name = event.payload.get("opportunity_name", "Unknown")

@@ -17,6 +17,8 @@ class OpportunityEvaluator:
     """
 
     async def evaluate(self, opportunities: list[MarketOpportunity]) -> EvaluationResult:
+        if not opportunities:
+            raise ValueError("Cannot evaluate empty opportunity list")
         best = max(
             opportunities,
             key=lambda o: (o.confidence_score, o.estimated_arr),
