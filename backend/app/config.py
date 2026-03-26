@@ -24,5 +24,12 @@ class Settings(BaseSettings):
     LLM_MODEL_SMART: str = "claude-sonnet-4-6"
     LLM_MODEL_FAST: str = "claude-haiku-4-5-20251001"
 
+    # Discord — King Solomon bot
+    DISCORD_BOT_TOKEN: str = ""
+    DISCORD_APPROVALS_CHANNEL_ID: int = 0
+    DISCORD_UPDATES_CHANNEL_ID: int = 0
+    DISCORD_ALERTS_CHANNEL_ID: int = 0
+    DISCORD_BACKEND_URL: str = "http://localhost:8000"
+
 def get_settings() -> Settings:
     return Settings()
