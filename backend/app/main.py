@@ -38,7 +38,10 @@ async def lifespan(app: FastAPI):
         alerts_channel_id=settings.DISCORD_ALERTS_CHANNEL_ID,
         backend_base_url=settings.DISCORD_BACKEND_URL,
     )
-    await notifier.start()
+    try:
+        await asyncio.wait_for(notifier.start(), timeout=10.0)
+    except asyncio.TimeoutError:
+        pass  # Bot failed to connect; handle_event will be a no-op until _client is ready
 
     # Subscribe notifier to bus events
     for event_type in (
