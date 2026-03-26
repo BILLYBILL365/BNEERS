@@ -12,6 +12,7 @@ from app.routers.agents import _agent_statuses
 from app.routers.decisions import set_bus
 from app.services.audit import AuditService
 from app.runner import AgentRunner
+from app.services.discord_notifier import DiscordNotifier
 
 
 @asynccontextmanager
@@ -28,6 +29,29 @@ async def lifespan(app: FastAPI):
 
     # Wire bus into decisions router (for publishing approved/rejected events)
     set_bus(bus)
+
+    # Start King Solomon Discord bot (no-op if DISCORD_BOT_TOKEN is empty)
+    notifier = DiscordNotifier(
+        bot_token=settings.DISCORD_BOT_TOKEN,
+        approvals_channel_id=settings.DISCORD_APPROVALS_CHANNEL_ID,
+        updates_channel_id=settings.DISCORD_UPDATES_CHANNEL_ID,
+        alerts_channel_id=settings.DISCORD_ALERTS_CHANNEL_ID,
+        backend_base_url=settings.DISCORD_BACKEND_URL,
+    )
+    await notifier.start()
+
+    # Subscribe notifier to bus events
+    for event_type in (
+        "decision.pending",
+        "decision.approved",
+        "decision.rejected",
+        "task.created",
+        "task.completed",
+        "agent.status",
+        "agent.alert",
+        "spend.exceeded",
+    ):
+        await bus.subscribe(event_type, notifier.handle_event)
 
     # Pass session factory to AuditService — each log() call opens its own session
     session_factory = get_session_factory()
@@ -59,6 +83,7 @@ async def lifespan(app: FastAPI):
     except asyncio.CancelledError:
         pass
     await runner.stop()
+    await notifier.stop()
 
     await redis_client.aclose()
 

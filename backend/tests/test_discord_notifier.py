@@ -262,3 +262,15 @@ async def test_bus_to_discord_routing():
     assert approvals_channel.send.call_count == 1   # decision.pending
     assert updates_channel.send.call_count == 1      # decision.approved
     assert alerts_channel.send.call_count == 2       # agent.alert + spend.exceeded
+
+
+def test_discord_notifier_import_and_instantiation():
+    """Smoke test: DiscordNotifier can be instantiated with empty token (no-op mode)."""
+    notifier = DiscordNotifier(
+        bot_token="",
+        approvals_channel_id=0,
+        updates_channel_id=0,
+        alerts_channel_id=0,
+    )
+    assert notifier._client is None
+    assert notifier._http is None
