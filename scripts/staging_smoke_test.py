@@ -27,7 +27,7 @@ def wait_for_backend(base_url: str, timeout: int) -> bool:
             r = httpx.get(f"{base_url}/health", timeout=2)
             if r.status_code == 200:
                 return True
-        except httpx.ConnectError:
+        except Exception:
             pass
         time.sleep(2)
     return False
