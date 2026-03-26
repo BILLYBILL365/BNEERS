@@ -120,15 +120,18 @@ class DiscordNotifier:
         channel = self._client.get_channel(self._channel_ids["approvals"])
         if channel is None:
             return
+        decision_id = payload.get("decision_id")
+        if not decision_id:
+            return
         embed = discord.Embed(
             title=f"Decision Request: {payload.get('title', 'Untitled')}",
             description=payload.get("description", ""),
             color=discord.Color.orange(),
         )
-        embed.add_field(name="Decision ID", value=payload.get("decision_id", ""), inline=False)
+        embed.add_field(name="Decision ID", value=decision_id, inline=False)
         embed.add_field(name="Requested by", value=payload.get("requested_by", "agent"), inline=True)
         view = ApprovalView(
-            decision_id=payload["decision_id"],
+            decision_id=decision_id,
             http=self._http,
             base_url=self._base_url,
         )
