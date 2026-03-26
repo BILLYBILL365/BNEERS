@@ -61,3 +61,25 @@ def test_frontend_railway_json_is_valid():
     with open(path) as f:
         data = json.load(f)
     assert data["build"]["builder"] == "DOCKERFILE"
+
+
+def test_railway_json_files_have_required_fields():
+    """Both railway.json files must have build, deploy, healthcheck configured."""
+    for rel_path, healthcheck_path in [
+        # backend/tests/ → backend/railway.json (one level up)
+        ("../railway.json", "/health"),
+        # backend/tests/ → backend/ → project root → frontend/railway.json
+        ("../../frontend/railway.json", "/"),
+    ]:
+        abs_path = os.path.normpath(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), rel_path)
+        )
+        with open(abs_path) as f:
+            data = json.load(f)
+
+        assert "build" in data, f"{rel_path}: missing 'build' section"
+        assert "deploy" in data, f"{rel_path}: missing 'deploy' section"
+        assert data["deploy"]["healthcheckPath"] == healthcheck_path, \
+            f"{rel_path}: wrong healthcheckPath"
+        assert data["deploy"]["healthcheckTimeout"] == 30, \
+            f"{rel_path}: healthcheckTimeout should be 30"
