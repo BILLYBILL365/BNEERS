@@ -70,3 +70,50 @@ def test_create_and_retrieve_decision():
     assert r2.status_code == 200
     ids = [d["id"] for d in r2.json()]
     assert decision_id in ids
+
+
+def test_decision_approve_flow():
+    """Create a decision, approve it, verify status changes to approved."""
+    payload = {
+        "title": "Market entry: B2B invoicing",
+        "description": "Strong demand, low competition",
+        "requested_by": "cso",
+    }
+    r = httpx.post(f"{BASE_URL}/decisions", json=payload)
+    assert r.status_code == 201
+    decision_id = r.json()["id"]
+
+    # Approve it
+    r2 = httpx.post(f"{BASE_URL}/decisions/{decision_id}/approve")
+    assert r2.status_code == 200
+    assert r2.json()["status"] == "approved"
+    assert r2.json()["decided_by"] == "board"
+
+
+def test_decision_reject_flow():
+    """Create a decision, reject it, verify status changes to rejected."""
+    payload = {
+        "title": "High-risk expansion",
+        "description": "Too early",
+        "requested_by": "cso",
+    }
+    r = httpx.post(f"{BASE_URL}/decisions", json=payload)
+    assert r.status_code == 201
+    decision_id = r.json()["id"]
+
+    r2 = httpx.post(f"{BASE_URL}/decisions/{decision_id}/reject")
+    assert r2.status_code == 200
+    assert r2.json()["status"] == "rejected"
+
+
+def test_agent_heartbeat_updates_status():
+    """POST a heartbeat for CSO and verify it updates the status store."""
+    r = httpx.post(
+        f"{BASE_URL}/agents/cso/heartbeat",
+        json={"status": "active"},
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["agent_id"] == "cso"
+    assert data["status"] == "active"
+    assert data["last_seen"] is not None
