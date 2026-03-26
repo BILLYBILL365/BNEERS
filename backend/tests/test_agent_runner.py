@@ -98,3 +98,16 @@ async def test_runner_heartbeat_updates_all_agents(runner, bus):
         assert agent_id in status_store
 
     await runner.stop()
+
+
+@pytest.mark.asyncio
+async def test_runner_creates_agents_with_no_llm_when_key_missing(bus, session_factory):
+    """Runner starts all agents even when ANTHROPIC_API_KEY is empty (no-op LLM)."""
+    audit = AuditService(session_factory=session_factory)
+    runner = AgentRunner(bus=bus, audit=audit, anthropic_api_key="")
+    status_store: dict = {}
+    runner.status_store = status_store
+    await runner.start()
+    for agent_id in ["cso", "cto", "cmo", "cfo", "coo"]:
+        assert agent_id in runner.agents
+    await runner.stop()

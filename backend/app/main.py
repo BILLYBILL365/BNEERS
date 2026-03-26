@@ -34,7 +34,14 @@ async def lifespan(app: FastAPI):
     audit = AuditService(session_factory=session_factory)
 
     # Start all C-Suite agents
-    runner = AgentRunner(bus=bus, audit=audit)
+    runner = AgentRunner(
+        bus=bus,
+        audit=audit,
+        anthropic_api_key=settings.ANTHROPIC_API_KEY,
+        weekly_soft_cap=settings.WEEKLY_SOFT_CAP_TOTAL,
+        daily_cap_ads=settings.DAILY_HARD_CAP_ADS,
+        daily_cap_apis=settings.DAILY_HARD_CAP_APIS,
+    )
     runner.status_store = _agent_statuses
     await runner.start()
 

@@ -1,52 +1,64 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
-from app.agents.base import BaseAgent
+from app.redis_bus import RedisBus
+from app.schemas.events import BusEvent
+from app.services.audit import AuditService
+from app.services.llm import LLMService
+from app.services.spend_tracker import SpendTracker
 from app.agents.cso import CSO
 from app.agents.cto import CTO
 from app.agents.cmo import CMO
 from app.agents.cfo import CFO
 from app.agents.coo import COO
-from app.redis_bus import RedisBus
-from app.schemas.events import BusEvent
-from app.services.audit import AuditService
-from app.services.spend_tracker import SpendTracker
-
-CSUITE_CLASSES = [CSO, CTO, CMO, CFO, COO]
 
 
 class AgentRunner:
-    """Manages the lifecycle of all C-Suite agents and the bus event loop.
+    """Starts and coordinates all C-Suite agents."""
 
-    Usage (in FastAPI lifespan):
-        runner = AgentRunner(bus=bus, audit=audit)
-        runner.status_store = _agent_statuses  # from routers/agents.py
-        await runner.start()
-        asyncio.create_task(bus.run_forever())
-        ...
-        await runner.stop()
-    """
-
-    def __init__(self, bus: RedisBus, audit: AuditService) -> None:
+    def __init__(
+        self,
+        bus: RedisBus,
+        audit: AuditService,
+        anthropic_api_key: str = "",
+        weekly_soft_cap: float = 500.0,
+        daily_cap_ads: float = 100.0,
+        daily_cap_apis: float = 50.0,
+    ) -> None:
         self._bus = bus
         self._audit = audit
-        self.agents: dict[str, BaseAgent] = {}
-        self.status_store: dict = {}  # injected by main.py — points to _agent_statuses
+        self.agents: dict[str, Any] = {}
+        self.status_store: dict[str, Any] = {}
+
+        llm_smart: LLMService | None = None
+        llm_fast: LLMService | None = None
+        if anthropic_api_key:
+            from anthropic import AsyncAnthropic
+            client = AsyncAnthropic(api_key=anthropic_api_key)
+            llm_smart = LLMService(client=client, model="claude-sonnet-4-6")
+            llm_fast = LLMService(client=client, model="claude-haiku-4-5-20251001")
+
+        spend_tracker = SpendTracker(
+            bus=bus, daily_cap_ads=daily_cap_ads, daily_cap_apis=daily_cap_apis
+        )
+
+        self.agents = {
+            "cso": CSO(bus=bus, audit=audit, llm=llm_smart),
+            "cto": CTO(bus=bus, audit=audit, llm=llm_smart),
+            "cmo": CMO(bus=bus, audit=audit, llm=llm_fast),
+            "cfo": CFO(
+                bus=bus, audit=audit,
+                spend_tracker=spend_tracker,
+                weekly_soft_cap=weekly_soft_cap,
+            ),
+            "coo": COO(bus=bus, audit=audit),
+        }
 
     async def start(self) -> None:
-        # Subscribe to agent.status events to keep status_store current
         await self._bus.subscribe("agent.status", self._on_agent_status)
-
-        # Instantiate and start all C-Suite agents
-        for AgentClass in CSUITE_CLASSES:
-            if AgentClass == CFO:
-                # CFO requires spend_tracker and weekly_soft_cap
-                spend_tracker = SpendTracker(bus=self._bus, daily_cap_ads=1000.0, daily_cap_apis=500.0)
-                agent = AgentClass(bus=self._bus, audit=self._audit, spend_tracker=spend_tracker, weekly_soft_cap=500.0)
-            else:
-                agent = AgentClass(bus=self._bus, audit=self._audit)
-            self.agents[agent.agent_id] = agent
+        for agent in self.agents.values():
             await agent.start()
 
     async def stop(self) -> None:
@@ -54,14 +66,13 @@ class AgentRunner:
             await agent.stop()
 
     async def heartbeat_all(self) -> None:
-        """Call each agent's heartbeat method. Run on a schedule."""
         for agent in self.agents.values():
             await agent.heartbeat()
 
     async def _on_agent_status(self, event: BusEvent) -> None:
-        agent_id: str = event.payload.get("agent_id", "")
-        status: str = event.payload.get("status", "idle")
-        if agent_id:
+        agent_id = event.payload.get("agent_id")
+        status = event.payload.get("status")
+        if agent_id and status:
             self.status_store[agent_id] = {
                 "agent_id": agent_id,
                 "status": status,
