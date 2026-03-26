@@ -1,12 +1,14 @@
 """Smoke tests that verify Docker and config are correctly set up."""
 import os
+import shutil
 import subprocess
 import pytest
 
 
 def test_backend_dockerfile_exists():
     """Dockerfile must exist and be buildable — basic sanity check."""
-    # backend/tests/ → backend/ (one level up, where Dockerfile lives)
+    if shutil.which("docker") is None:
+        pytest.skip("docker CLI not available")
     backend_dir = os.path.normpath(
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     )
@@ -15,5 +17,6 @@ def test_backend_dockerfile_exists():
         capture_output=True,
         text=True,
         cwd=backend_dir,
+        timeout=300,
     )
     assert result.returncode == 0, f"docker build failed:\n{result.stderr}"
