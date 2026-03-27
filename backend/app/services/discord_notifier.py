@@ -9,7 +9,12 @@ import httpx
 from app.schemas.events import BusEvent
 
 _APPROVALS_EVENTS = {"decision.pending"}
-_UPDATES_EVENTS = {"decision.approved", "decision.rejected", "task.created", "task.completed", "agent.status"}
+_UPDATES_EVENTS = {
+    "decision.approved", "decision.rejected",
+    "task.created", "task.completed",
+    "agent.status",
+    "cycle.start", "leads.approved", "cycle.completed",
+}
 _ALERTS_EVENTS = {"agent.alert", "spend.exceeded"}
 
 

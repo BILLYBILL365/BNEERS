@@ -9,14 +9,13 @@ from app.services.audit import AuditService
 from app.services.llm import LLMService
 from app.services.spend_tracker import SpendTracker
 from app.agents.cso import CSO
-from app.agents.cto import CTO
 from app.agents.cmo import CMO
 from app.agents.cfo import CFO
 from app.agents.coo import COO
 
 
 class AgentRunner:
-    """Starts and coordinates all C-Suite agents."""
+    """Starts and coordinates all C-Suite agents: CSO, CMO, COO, CFO."""
 
     def __init__(
         self,
@@ -48,7 +47,6 @@ class AgentRunner:
 
         self.agents = {
             "cso": CSO(bus=bus, audit=audit, llm=llm_smart),
-            "cto": CTO(bus=bus, audit=audit, llm=llm_smart),
             "cmo": CMO(bus=bus, audit=audit, llm=llm_fast),
             "cfo": CFO(
                 bus=bus, audit=audit,
