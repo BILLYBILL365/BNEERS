@@ -1,5 +1,4 @@
 import asyncio
-import pytest
 import pytest_asyncio
 import fakeredis.aioredis as fakeredis
 from unittest.mock import AsyncMock, patch
