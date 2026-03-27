@@ -31,12 +31,12 @@ The scheduler communicates with agents exclusively through the Redis bus. It pub
 ### Automatic (scheduled)
 1. `AgentScheduler._loop()` sleeps for `CYCLE_INTERVAL_SECONDS`, **then** calls `trigger()`. The first cycle fires after the first full interval — not immediately on startup. This is intentional: startup may still be settling, and manual trigger is available for immediate execution.
 2. Calls `trigger()` — skips if `_cycle_running` is True
-3. Sets `_cycle_running = True`, generates a `cycle_id` (UUID4)
+3. Sets `_cycle_running = True`, generates a `cycle_id` (UUID4), stores as `_current_cycle_id`
 4. Publishes `cycle.start` with `{"cycle_id": "<uuid>"}` on the bus
-5. CSO receives `cycle.start`, runs market research, posts Board decision
-6. Board approves or rejects in Mission Control
-7. CSO publishes `cycle.completed` with `{"cycle_id": "<uuid>", "outcome": "approved"|"rejected"}`
-8. `AgentScheduler._on_cycle_completed()` checks `cycle_id` matches, resets `_cycle_running = False`, cancels the timeout task
+5. CSO's `_on_cycle_start()` stores `cycle_id`, calls `_run_market_research()` (which posts an `approve_opportunity` decision and returns immediately)
+6. Board approves or rejects the `approve_opportunity` decision in Mission Control
+7. CSO's `_on_opportunity_approved()` or `_on_decision_rejected()` fires; if `_current_cycle_id` is set, publishes `cycle.completed` with `{"cycle_id": "<uuid>", "outcome": "approved"|"rejected"}` and clears `_current_cycle_id`
+8. `AgentScheduler._on_cycle_completed()` checks `cycle_id` matches `_current_cycle_id`, resets `_cycle_running = False`, cancels the timeout task
 
 ### Manual (Board-initiated)
 - `POST /cycles/trigger` calls `AgentScheduler.trigger()` directly
@@ -55,7 +55,7 @@ When a cycle starts, a 4-hour `asyncio.Task` (`_timeout_task`) is created. If it
 
 `_on_cycle_completed()` always cancels `_timeout_task` when it fires — even after a clean resolution — so the timeout never fires on a resolved cycle. Before cancelling, check `if self._timeout_task and not self._timeout_task.done()` to guard against a `None` task (e.g. `trigger()` was never called) or a task that already completed.
 
-**Race condition handling:** `_on_cycle_completed()` cancels `_timeout_task` synchronously (before any `await`) to prevent the timeout from resetting `_cycle_running` after `_on_cycle_completed()` has already done so. Cancellation requests the cancellation but does not guarantee immediate stop — the important guarantee is that `_cycle_running` is reset to `False` exactly once per cycle, by whichever of `_on_cycle_completed()` or `_on_timeout()` fires first.
+**Race condition handling:** Both `_on_cycle_completed()` and `_on_timeout()` must begin with `if not self._cycle_running: return` to guard against double-execution. Because asyncio is single-threaded and task cancellation is only checked at `await` points, calling `self._timeout_task.cancel()` synchronously (before any `await`) inside `_on_cycle_completed()` prevents `_on_timeout` from advancing past its next `await`. The `if not self._cycle_running: return` guard at the top of both handlers ensures that even if both fire, only the first one resets state.
 
 ### Error handling
 Any exception inside `_loop()` is caught, logged as `cycle_error` to audit, and the loop resumes after the next interval. The loop never crashes the process.
@@ -94,7 +94,7 @@ class AgentScheduler:
 
 `start()` registers its own subscriptions internally (`cycle.completed`) — consistent with how `AgentRunner` and `DiscordNotifier` register subscriptions in their own `start()` methods, not in `main.py`.
 
-`stop()` must `await` cancellation of both tasks and swallow `asyncio.CancelledError`. If `_timeout_task` fires mid-cancellation, its publish attempt may fail silently — this is acceptable during shutdown since the bus is about to be torn down.
+`stop()` must `await` cancellation of both tasks and swallow `asyncio.CancelledError`. The scheduler is stopped **before** the bus is torn down (see Shutdown Order), so if `_timeout_task` fires mid-cancellation it may still successfully publish `agent.alert` on the bus — this is acceptable and expected behavior.
 
 ### New files (continued)
 
@@ -110,23 +110,28 @@ class AgentScheduler:
 
 CSO adds a `_current_cycle_id: str | None = None` instance attribute (None when not in a scheduler-initiated cycle).
 
+**Important architecture note:** `_run_market_research()` returns `None` immediately after calling `request_decision()` (which posts the `approve_opportunity` decision and returns). It does **not** await the Board's response. The Board's decision arrives later as a separate bus event. Therefore `cycle.completed` cannot be published from `_on_cycle_start()` — it must be published from the handlers that process the Board's ultimate decision on the `approve_opportunity` proposal.
+
 - In `on_start()`: add `await self.subscribe("cycle.start", self._on_cycle_start)`
 - Add `_on_cycle_start(event)` handler:
-  1. Stores `self._current_cycle_id = event.payload["cycle_id"]`
-  2. Calls `await self._run_market_research()`
-  3. After `_run_market_research()` returns (meaning the Board has approved or rejected the opportunity decision), publishes `cycle.completed`:
-     ```python
-     await self.bus.publish("cycle.completed", {
-         "cycle_id": self._current_cycle_id,
-         "outcome": "approved" | "rejected"  # from decision result
-     })
-     self._current_cycle_id = None
-     ```
-  The `outcome` value is determined by the Board's decision on the market research proposal — the same result that `_run_market_research()` awaits internally.
+  1. Guard: `if self._current_cycle_id is not None: log warning, return` (ignore duplicate `cycle.start` while a cycle is already being tracked)
+  2. Store `self._current_cycle_id = event.payload["cycle_id"]`
+  3. Call `await self._run_market_research()` (posts `approve_opportunity` decision and returns — cycle is still in progress)
+  4. Do **not** publish `cycle.completed` here — the cycle is not done yet
 
-- The existing `decision.approved / task=="market_research"` subscription handler is **kept as a manual override path**. It does **not** publish `cycle.completed` because it has no `cycle_id` to echo back (it was triggered directly by the Board, not by the scheduler). This handler only runs when there is no active scheduler cycle (`_current_cycle_id` is None when a direct Board approval fires).
+- Modify `_on_opportunity_approved(event)` (the existing handler for `decision.approved / task=="approve_opportunity"`):
+  - After the existing logic, add: `if self._current_cycle_id is not None: publish cycle.completed with {"cycle_id": self._current_cycle_id, "outcome": "approved"}; set self._current_cycle_id = None`
 
-**Important:** `cycle.completed` is published only from `_on_cycle_start()`, never from the manual `decision.approved` handler. Two distinct code paths, zero overlap.
+- Modify `_on_decision_rejected(event)` (the existing handler for all `decision.rejected` events):
+  - After the existing log, add: `if self._current_cycle_id is not None: publish cycle.completed with {"cycle_id": self._current_cycle_id, "outcome": "rejected"}; set self._current_cycle_id = None`
+
+- The existing `decision.approved / task=="market_research"` path (manual Board trigger for market research) remains unchanged. Add guard: `if self._current_cycle_id is not None: return` before calling `_run_market_research()` in this branch — prevents a manual Board override from conflicting with an in-progress scheduler cycle.
+
+**Summary of two paths:**
+| Path | Triggers `_run_market_research` | Sets `_current_cycle_id` | Publishes `cycle.completed` |
+|------|--------------------------------|--------------------------|-----------------------------|
+| Scheduler (`cycle.start`) | Yes, from `_on_cycle_start` | Yes | Yes, from `_on_opportunity_approved` / `_on_decision_rejected` |
+| Manual Board (`decision.approved / task=market_research`) | Yes, from `_on_decision_approved` (only if `_current_cycle_id is None`) | No | No |
 
 **`backend/app/main.py`**
 - Add `from app.scheduler import AgentScheduler, set_scheduler`
@@ -149,7 +154,8 @@ CSO adds a `_current_cycle_id: str | None = None` instance attribute (None when 
 
 **`frontend/app/page.tsx`**
 - Add "▶ Start Cycle" button in the top bar area
-- On click: calls `api.cycles.trigger()`, then shows inline status for 3 seconds:
+- On click: disable the button immediately and show a loading indicator while awaiting the response
+- After response arrives, re-enable the button and show inline status for 3 seconds:
   - If `response.started === true`: display `"Cycle started"`
   - If `response.started === false`: display the `response.reason` string from the API (e.g. `"cycle already running"` or `"scheduler not initialized"`)
 - No new persistent state needed
@@ -212,6 +218,8 @@ Scheduler is stopped first so it cannot publish during teardown after the bus is
 - Unit: `_on_timeout()` resets flag, publishes `agent.alert`, logs `cycle_timeout`
 - Unit: `_on_cycle_completed()` called while `_timeout_task` is still pending — verifies timeout task is cancelled and does not subsequently reset `_cycle_running`
 - Unit: `_on_cycle_completed()` called with `_timeout_task=None` — verifies no AttributeError, no crash
+- Unit: exception raised inside `_loop()` (e.g. from `trigger()`) is caught, logged as `cycle_error`, and the loop continues to the next iteration without crashing
+- CSO unit: `cycle.start` received while `_current_cycle_id` is already set — verifies warning is logged and `_run_market_research()` is NOT called (duplicate ignored)
 - Integration: `POST /cycles/trigger` → 200 `{"started": true}`
 - Integration: second `POST /cycles/trigger` while running → `{"started": false, "reason": "cycle already running"}`
 - Integration: `POST /cycles/trigger` when scheduler not initialized (`get_scheduler()` returns None) → `{"started": false, "reason": "scheduler not initialized"}`
