@@ -13,8 +13,15 @@ def get_engine():
 
 
 @lru_cache
-def get_session_factory():
-    return async_sessionmaker(get_engine(), expire_on_commit=False)
+def get_engine():
+    s = get_settings()
+    url = s.DATABASE_URL
+    # Railway provides postgresql:// but asyncpg needs postgresql+asyncpg://
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    elif url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+    return create_async_engine(url, echo=s.ENVIRONMENT == "development")
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
