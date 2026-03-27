@@ -33,9 +33,9 @@ The scheduler communicates with agents exclusively through the Redis bus. It pub
 2. Calls `trigger()` — skips if `_cycle_running` is True
 3. Sets `_cycle_running = True`, generates a `cycle_id` (UUID4), stores as `_current_cycle_id`
 4. Publishes `cycle.start` with `{"cycle_id": "<uuid>"}` on the bus
-5. CSO's `_on_cycle_start()` stores `cycle_id`, calls `_run_market_research()` (which posts an `approve_opportunity` decision and returns immediately)
+5. CSO's `_on_cycle_start()` stores `cycle_id`, calls `_run_market_research()` (which posts an `approve_opportunity` decision and returns its `decision_id`), stores `_pending_decision_id`
 6. Board approves or rejects the `approve_opportunity` decision in Mission Control
-7. CSO's `_on_opportunity_approved()` or `_on_decision_rejected()` fires; if `_current_cycle_id` is set, publishes `cycle.completed` with `{"cycle_id": "<uuid>", "outcome": "approved"|"rejected"}` and clears `_current_cycle_id`
+7. CSO's `_on_opportunity_approved()` or `_on_decision_rejected()` fires; if `_current_cycle_id` is set AND `event.payload["decision_id"] == _pending_decision_id`, publishes `cycle.completed` with `{"cycle_id": "<uuid>", "outcome": "approved"|"rejected"}` and clears both `_current_cycle_id` and `_pending_decision_id`
 8. `AgentScheduler._on_cycle_completed()` checks `cycle_id` matches `_current_cycle_id`, resets `_cycle_running = False`, cancels the timeout task
 
 ### Manual (Board-initiated)
@@ -86,10 +86,10 @@ class AgentScheduler:
     def __init__(self, bus: RedisBus, audit: AuditService, interval_seconds: int) -> None: ...
     async def start(self) -> None        # registers subscriptions, begins _loop as asyncio.Task
     async def stop(self) -> None         # cancels _loop_task and _timeout_task; awaits cancellation; swallows CancelledError
-    async def trigger(self) -> bool      # True=started (sets _cycle_running, stores _current_cycle_id, publishes cycle.start), False=skipped
+    async def trigger(self) -> bool      # True=started (sets _cycle_running, stores _current_cycle_id, publishes cycle.start, logs cycle_started to audit), False=skipped (logs cycle_skipped to audit)
     async def _loop(self) -> None        # sleep(interval) → trigger() → repeat; catches Exception (not BaseException) so CancelledError propagates; logs cycle_error on exception
     async def _on_cycle_completed(self, event: BusEvent) -> None  # validates cycle_id matches _current_cycle_id, resets flag, cancels timeout
-    async def _on_timeout(self) -> None  # 4-hour safety reset; does: await asyncio.sleep(4h), then resets flag, clears _timeout_task, publishes agent.alert
+    async def _on_timeout(self) -> None  # 4-hour safety reset; does: await asyncio.sleep(4h), then: guard (if not _cycle_running: return), reset _cycle_running=False, clear _current_cycle_id=None, clear _timeout_task=None, publish agent.alert, log cycle_timeout
 ```
 
 `_timeout_task` is created as `asyncio.create_task(self._on_timeout())` — `_on_timeout` is the task coroutine itself (not a callback after a separate sleep task). It does `await asyncio.sleep(4 * 3600)` internally, then performs cleanup if not cancelled first.
@@ -114,31 +114,38 @@ class AgentScheduler:
 
 **`backend/app/agents/cso.py`**
 
-CSO adds a `_current_cycle_id: str | None = None` instance attribute (None when not in a scheduler-initiated cycle).
+CSO adds two new instance attributes:
+- `_current_cycle_id: str | None = None` — UUID of the in-progress scheduler cycle; None when idle
+- `_pending_decision_id: str | None = None` — decision_id of the `approve_opportunity` decision posted during a scheduler cycle; None when idle
 
-**Important architecture note:** `_run_market_research()` returns `None` immediately after calling `request_decision()` (which posts the `approve_opportunity` decision and returns). It does **not** await the Board's response. The Board's decision arrives later as a separate bus event. Therefore `cycle.completed` cannot be published from `_on_cycle_start()` — it must be published from the handlers that process the Board's ultimate decision on the `approve_opportunity` proposal.
+**Important architecture note:** `_run_market_research()` is changed to return `str | None` (the `decision_id` of the `approve_opportunity` decision it posts, or `None` if the scanner is not configured). It currently returns `None` — this return type change is required.
+
+**Why `decision_id` tracking instead of `task` field:** The router's `decision.approved` and `decision.rejected` events carry only `{decision_id, title, decided_by}` — the `extra_payload` fields (including `task`) from the original `decision.pending` event are not preserved. Therefore, the `task` field is **not available** in `decision.approved`/`decision.rejected` events in production. We identify which decision ended the cycle by matching `event.payload["decision_id"]` against `_pending_decision_id`.
 
 - In `on_start()`: add `await self.subscribe("cycle.start", self._on_cycle_start)`
 - Add `_on_cycle_start(event)` handler:
-  1. Guard: `if self._current_cycle_id is not None: log warning, return` (ignore duplicate `cycle.start` while a cycle is already being tracked)
+  1. Guard: `if self._current_cycle_id is not None: log warning, return` (ignore duplicate `cycle.start`)
   2. Store `self._current_cycle_id = event.payload["cycle_id"]`
-  3. Call `await self._run_market_research()` (posts `approve_opportunity` decision and returns — cycle is still in progress)
-  4. Do **not** publish `cycle.completed` here — the cycle is not done yet
+  3. `decision_id = await self._run_market_research()`
+  4. Store `self._pending_decision_id = decision_id`
+  5. Do **not** publish `cycle.completed` here — cycle completes when the Board decides
 
-- Modify `_on_opportunity_approved(event)` (the existing handler for `decision.approved / task=="approve_opportunity"`):
-  - After the existing logic, add: `if self._current_cycle_id is not None: publish cycle.completed with {"cycle_id": self._current_cycle_id, "outcome": "approved"}; set self._current_cycle_id = None`
+- Modify `_run_market_research()`: change return type to `str | None`; return `decision_id` from `request_decision()` call (currently the return value is discarded); return `None` in the early-exit path (no scanner configured)
 
-- Modify `_on_decision_rejected(event)` (the existing handler for all `decision.rejected` events):
-  - After the existing log, add: `if self._current_cycle_id is not None AND event.payload.get("task") == "approve_opportunity": publish cycle.completed with {"cycle_id": self._current_cycle_id, "outcome": "rejected"}; set self._current_cycle_id = None`
-  - The `task == "approve_opportunity"` guard is required — `_on_decision_rejected` fires for ALL rejected decisions. Without it, any rejected decision while a cycle is running would prematurely end the cycle.
+- Modify `_on_opportunity_approved(event)` (handles `decision.approved`):
+  - After the existing logic, add: `if self._current_cycle_id is not None and event.payload.get("decision_id") == self._pending_decision_id: publish cycle.completed with {"cycle_id": self._current_cycle_id, "outcome": "approved"}; clear _current_cycle_id and _pending_decision_id to None`
 
-- The existing `decision.approved / task=="market_research"` path (manual Board trigger for market research) remains unchanged. Add guard: `if self._current_cycle_id is not None: return` before calling `_run_market_research()` in this branch — prevents a manual Board override from conflicting with an in-progress scheduler cycle.
+- Modify `_on_decision_rejected(event)` (handles all `decision.rejected` events):
+  - After the existing log, add: `if self._current_cycle_id is not None and event.payload.get("decision_id") == self._pending_decision_id: publish cycle.completed with {"cycle_id": self._current_cycle_id, "outcome": "rejected"}; clear _current_cycle_id and _pending_decision_id to None`
+  - The `decision_id` match guard is required — `_on_decision_rejected` fires for ALL rejected decisions. Without it, any rejected decision while a cycle is running would prematurely end the cycle.
+
+- The existing `decision.approved / task=="market_research"` path (manual Board trigger for market research) remains unchanged. Add guard: `if self._current_cycle_id is not None: return` before calling `_run_market_research()` in this branch.
 
 **Summary of two paths:**
-| Path | Triggers `_run_market_research` | Sets `_current_cycle_id` | Publishes `cycle.completed` |
-|------|--------------------------------|--------------------------|-----------------------------|
-| Scheduler (`cycle.start`) | Yes, from `_on_cycle_start` | Yes | Yes, from `_on_opportunity_approved` / `_on_decision_rejected` |
-| Manual Board (`decision.approved / task=market_research`) | Yes, from `_on_decision_approved` (only if `_current_cycle_id is None`) | No | No |
+| Path | Triggers `_run_market_research` | Sets `_current_cycle_id` | Sets `_pending_decision_id` | Publishes `cycle.completed` |
+|------|--------------------------------|--------------------------|-----------------------------|-----------------------------|
+| Scheduler (`cycle.start`) | Yes, from `_on_cycle_start` | Yes | Yes | Yes, from `_on_opportunity_approved` / `_on_decision_rejected` (matched by `decision_id`) |
+| Manual Board (`decision.approved / task=market_research`) | Yes, from `_on_decision_approved` (only if `_current_cycle_id is None`) | No | No | No |
 
 **`backend/app/main.py`**
 - Add `from app.scheduler import AgentScheduler, set_scheduler`
