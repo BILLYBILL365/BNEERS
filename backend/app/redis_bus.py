@@ -15,7 +15,7 @@ class RedisBus:
         self._handlers: dict[str, list[EventHandler]] = defaultdict(list)
 
     async def publish(self, event: BusEvent) -> None:
-        await self._redis.rpush(self.CHANNEL, event.model_dump_json())
+        await self._redis.lpush(self.CHANNEL, event.model_dump_json())
 
     async def subscribe(self, event_type: str, handler: EventHandler) -> None:
         self._handlers[event_type].append(handler)

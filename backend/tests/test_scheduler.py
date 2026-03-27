@@ -95,6 +95,9 @@ async def test_trigger_skipped_logs_cycle_skipped(scheduler, session_factory):
 async def test_on_cycle_completed_resets_state(scheduler, bus):
     await scheduler.trigger()
     cycle_id = scheduler._current_cycle_id
+    # Drain the cycle.start event published by trigger()
+    while await bus._redis.rpop(bus.CHANNEL):
+        pass
     # Simulate CMO publishing cycle.completed
     event = BusEvent(type="cycle.completed", payload={"cycle_id": cycle_id, "outcome": "sent"})
     await bus.publish(event)
@@ -105,6 +108,9 @@ async def test_on_cycle_completed_resets_state(scheduler, bus):
 
 async def test_on_cycle_completed_ignores_wrong_cycle_id(scheduler, bus):
     await scheduler.trigger()
+    # Drain the cycle.start event published by trigger()
+    while await bus._redis.rpop(bus.CHANNEL):
+        pass
     # Simulate a stale cycle.completed from a different cycle
     event = BusEvent(type="cycle.completed", payload={"cycle_id": "wrong-id", "outcome": "sent"})
     await bus.publish(event)
@@ -118,6 +124,9 @@ async def test_on_cycle_completed_cancels_timeout(scheduler, bus):
     timeout_task = scheduler._timeout_task
     assert timeout_task is not None
     assert not timeout_task.done()
+    # Drain the cycle.start event published by trigger()
+    while await bus._redis.rpop(bus.CHANNEL):
+        pass
     event = BusEvent(type="cycle.completed", payload={"cycle_id": cycle_id, "outcome": "sent"})
     await bus.publish(event)
     await bus.process_one()
@@ -130,6 +139,9 @@ async def test_on_cycle_completed_with_no_timeout_task(scheduler, bus):
     await scheduler.trigger()
     cycle_id = scheduler._current_cycle_id
     scheduler._timeout_task = None  # force None
+    # Drain the cycle.start event published by trigger()
+    while await bus._redis.rpop(bus.CHANNEL):
+        pass
     event = BusEvent(type="cycle.completed", payload={"cycle_id": cycle_id, "outcome": "sent"})
     await bus.publish(event)
     await bus.process_one()  # must not raise
