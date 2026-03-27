@@ -50,13 +50,16 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode (async-compatible).
-
     In this scenario we need to create an Engine
     and associate a connection with the context.
-
     """
     settings = get_settings()
-    connectable = create_async_engine(settings.DATABASE_URL, poolclass=pool.NullPool)
+    url = settings.DATABASE_URL
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    elif url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+    connectable = create_async_engine(url, poolclass=pool.NullPool)
 
     def do_run_migrations(connection):
         context.configure(connection=connection, target_metadata=target_metadata)
