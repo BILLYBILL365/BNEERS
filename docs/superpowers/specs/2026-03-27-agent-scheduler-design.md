@@ -87,10 +87,16 @@ class AgentScheduler:
     async def start(self) -> None        # registers subscriptions, begins _loop as asyncio.Task
     async def stop(self) -> None         # cancels _loop_task and _timeout_task; awaits cancellation; swallows CancelledError
     async def trigger(self) -> bool      # True=started (sets _cycle_running, stores _current_cycle_id, publishes cycle.start), False=skipped
-    async def _loop(self) -> None        # sleep(interval) → trigger() → repeat; catches all exceptions, logs cycle_error, never raises
+    async def _loop(self) -> None        # sleep(interval) → trigger() → repeat; catches Exception (not BaseException) so CancelledError propagates; logs cycle_error on exception
     async def _on_cycle_completed(self, event: BusEvent) -> None  # validates cycle_id matches _current_cycle_id, resets flag, cancels timeout
-    async def _on_timeout(self) -> None  # 4-hour safety reset; resets flag, clears _timeout_task, publishes agent.alert
+    async def _on_timeout(self) -> None  # 4-hour safety reset; does: await asyncio.sleep(4h), then resets flag, clears _timeout_task, publishes agent.alert
 ```
+
+`_timeout_task` is created as `asyncio.create_task(self._on_timeout())` — `_on_timeout` is the task coroutine itself (not a callback after a separate sleep task). It does `await asyncio.sleep(4 * 3600)` internally, then performs cleanup if not cancelled first.
+
+`trigger()` is `async` because it `await`s the bus publish. All call sites (the `_loop` method and the cycles router) must `await` it.
+
+`BusEvent` is imported from `app.schemas.events` (same module used by all existing agents).
 
 `start()` registers its own subscriptions internally (`cycle.completed`) — consistent with how `AgentRunner` and `DiscordNotifier` register subscriptions in their own `start()` methods, not in `main.py`.
 
@@ -123,7 +129,8 @@ CSO adds a `_current_cycle_id: str | None = None` instance attribute (None when 
   - After the existing logic, add: `if self._current_cycle_id is not None: publish cycle.completed with {"cycle_id": self._current_cycle_id, "outcome": "approved"}; set self._current_cycle_id = None`
 
 - Modify `_on_decision_rejected(event)` (the existing handler for all `decision.rejected` events):
-  - After the existing log, add: `if self._current_cycle_id is not None: publish cycle.completed with {"cycle_id": self._current_cycle_id, "outcome": "rejected"}; set self._current_cycle_id = None`
+  - After the existing log, add: `if self._current_cycle_id is not None AND event.payload.get("task") == "approve_opportunity": publish cycle.completed with {"cycle_id": self._current_cycle_id, "outcome": "rejected"}; set self._current_cycle_id = None`
+  - The `task == "approve_opportunity"` guard is required — `_on_decision_rejected` fires for ALL rejected decisions. Without it, any rejected decision while a cycle is running would prematurely end the cycle.
 
 - The existing `decision.approved / task=="market_research"` path (manual Board trigger for market research) remains unchanged. Add guard: `if self._current_cycle_id is not None: return` before calling `_run_market_research()` in this branch — prevents a manual Board override from conflicting with an in-progress scheduler cycle.
 
@@ -158,7 +165,7 @@ CSO adds a `_current_cycle_id: str | None = None` instance attribute (None when 
 - After response arrives, re-enable the button and show inline status for 3 seconds:
   - If `response.started === true`: display `"Cycle started"`
   - If `response.started === false`: display the `response.reason` string from the API (e.g. `"cycle already running"` or `"scheduler not initialized"`)
-- No new persistent state needed
+- The button is NOT kept disabled for the duration of the cycle. After the 3-second status message clears, the button returns to normal. If clicked again while a cycle is running, the API returns `{"started": false, "reason": "cycle already running"}` and that reason is displayed. No persistent cycle-state tracking in the frontend.
 
 ---
 
@@ -205,7 +212,7 @@ CSO adds a `_current_cycle_id: str | None = None` instance attribute (None when 
 5. await redis_client.aclose()
 ```
 
-Scheduler is stopped first so it cannot publish during teardown after the bus is gone.
+Scheduler is stopped first to prevent new `cycle.start` publications after the bus loop is cancelled. The bus is still live during `scheduler.stop()`, so any in-flight `agent.alert` from a mid-cancellation timeout may still successfully publish — this is acceptable.
 
 ---
 
@@ -225,3 +232,4 @@ Scheduler is stopped first so it cannot publish during teardown after the bus is
 - Integration: `POST /cycles/trigger` when scheduler not initialized (`get_scheduler()` returns None) → `{"started": false, "reason": "scheduler not initialized"}`
 - CSO unit: `cycle.start` event triggers `_run_market_research()`
 - CSO unit: after cycle completes, `cycle.completed` is published with correct `cycle_id`
+- CSO unit: `_on_decision_rejected` fires with `task != "approve_opportunity"` while `_current_cycle_id` is set — verifies `cycle.completed` is NOT published and cycle remains active
