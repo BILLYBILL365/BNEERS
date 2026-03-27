@@ -3,16 +3,16 @@ from __future__ import annotations
 from app.agents.base import BaseAgent
 from app.schemas.events import BusEvent
 from app.services.llm import LLMService
-from app.agents.workers.content_writer import ContentWriter
-from app.agents.workers.ad_manager import AdManager
-from app.agents.workers.social_media import SocialMedia
 
 
 class CMO(BaseAgent):
-    """Chief Marketing Officer — content, ads, SEO, social, email.
+    """Chief Marketing Officer — Lead Supremacy AI outreach.
 
-    Phase 3: on task.created(task_type=launch_campaign, assignee=cmo), runs
-    Content → Ads → Social pipeline.
+    On leads.approved: drafts personalized cold emails for each lead (stub).
+    Posts outreach drafts to the Board for approval.
+    On Board approval: sends emails (stub — logs to audit), publishes cycle.completed {sent}.
+    On Board rejection: publishes cycle.completed {rejected}.
+    Also handles task.created for non-cycle tasks.
     """
 
     agent_id = "cmo"
@@ -20,72 +20,143 @@ class CMO(BaseAgent):
     def __init__(self, bus, audit, llm: LLMService | None = None) -> None:
         super().__init__(bus=bus, audit=audit)
         self._llm = llm
-        self._content_writer = ContentWriter(llm=llm) if llm else None
-        self._ad_manager = AdManager(llm=llm) if llm else None
-        self._social_media = SocialMedia(llm=llm) if llm else None
+        self._current_cycle_id: str | None = None
+        self._pending_drafts: list = []
 
     async def on_start(self) -> None:
+        await self.subscribe("leads.approved", self._on_leads_approved)
         await self.subscribe("decision.approved", self._on_decision_approved)
+        await self.subscribe("decision.rejected", self._on_decision_rejected)
         await self.subscribe("task.created", self._on_task_created)
         await self._audit.log(agent_id=self.agent_id, event_type="agent_started", payload={})
 
-    async def _on_decision_approved(self, event: BusEvent) -> None:
-        await self._audit.log(
-            agent_id=self.agent_id,
-            event_type="decision.approved",
-            payload=event.payload,
-            outcome="acknowledged",
-        )
-
-    async def _on_task_created(self, event: BusEvent) -> None:
-        if event.payload.get("assignee") != self.agent_id:
+    async def _on_leads_approved(self, event: BusEvent) -> None:
+        if self._current_cycle_id is not None:
+            await self._audit.log(
+                agent_id=self.agent_id,
+                event_type="leads_approved_ignored",
+                payload={
+                    "reason": "outreach already in progress",
+                    "active_cycle_id": self._current_cycle_id,
+                },
+            )
             return
-        task_type = event.payload.get("task_type")
-        if task_type == "launch_campaign" and self._content_writer:
-            await self._run_campaign_pipeline(event)
+        self._current_cycle_id = event.payload["cycle_id"]
+        leads = event.payload.get("leads", [])
+        await self._draft_outreach(leads)
+
+    async def _draft_outreach(self, leads: list) -> None:
+        await self._emit_status("thinking")
+        try:
+            drafts = [self._stub_draft(lead) for lead in leads]
+            self._pending_drafts = drafts
+            await self._audit.log(
+                agent_id=self.agent_id,
+                event_type="outreach_drafted",
+                payload={"draft_count": len(drafts), "cycle_id": self._current_cycle_id},
+                outcome="success",
+            )
+            preview_lines = []
+            for d in drafts[:3]:
+                preview_lines.append(f"To: {d['to']}\nSubject: {d['subject']}\n{d['body'][:150]}...")
+            if len(drafts) > 3:
+                preview_lines.append(f"...and {len(drafts) - 3} more email(s)")
+            await self.request_decision(
+                title=f"Outreach drafts ready: {len(drafts)} emails",
+                description="\n\n---\n\n".join(preview_lines),
+                extra_payload={
+                    "task": "approve_outreach",
+                    "cycle_id": self._current_cycle_id,
+                },
+            )
+        finally:
+            await self._emit_status("active")
+
+    def _stub_draft(self, lead: dict) -> dict:
+        """Stub email draft. Replace with LLM-generated personalized copy."""
+        name = lead.get("name", "Business Owner")
+        city = lead.get("city", "")
+        niche = lead.get("niche", "service")
+        slug = name.lower().replace(" ", "").replace(",", "")
+        return {
+            "to": f"owner@{slug}.com",
+            "subject": f"Question about your {niche} business in {city}",
+            "body": (
+                f"Hi {name},\n\n"
+                f"I noticed you're running Google Ads for your {niche} business in {city}. "
+                f"We help local {niche} companies capture missed calls 24/7 with AI voice agents "
+                f"— most clients recover $8,000–$15,000/month in lost revenue within 30 days.\n\n"
+                f"Would you be open to a quick 10-minute call to see if it's a fit?\n\n"
+                f"Best,\nLead Supremacy AI Team"
+            ),
+        }
+
+    async def _on_decision_approved(self, event: BusEvent) -> None:
+        event_cycle_id = event.payload.get("cycle_id")
+        if event_cycle_id and event_cycle_id == self._current_cycle_id:
+            drafts = self._pending_drafts
+            cycle_id = self._current_cycle_id
+            self._current_cycle_id = None
+            self._pending_drafts = []
+            await self._send_outreach(drafts, cycle_id)
         else:
             await self._audit.log(
                 agent_id=self.agent_id,
-                event_type="task.created",
+                event_type="decision.approved",
                 payload=event.payload,
                 outcome="acknowledged",
             )
 
-    async def _run_campaign_pipeline(self, event: BusEvent) -> None:
-        name = event.payload.get("product_name", "Unknown")
-        await self._emit_status("thinking")
-        try:
-            content = await self.with_retry(
-                lambda: self._content_writer.create(name, target_market="SMB"),
-                context="content_creation",
-            )
-            ad_copy = await self.with_retry(
-                lambda: self._ad_manager.create_ad(name, budget=50.0),
-                context="ad_creation",
-            )
-            social = await self.with_retry(
-                lambda: self._social_media.create_posts(name),
-                context="social_posts",
-            )
+    async def _send_outreach(self, drafts: list, cycle_id: str) -> None:
+        """Send outreach emails. Stubbed — logs to audit. Replace with SMTP/API integration."""
+        for draft in drafts:
             await self._audit.log(
                 agent_id=self.agent_id,
-                event_type="campaign_pipeline_complete",
-                payload={
-                    "product_name": name,
-                    "headline": content.landing_page_headline,
-                    "email_subject": content.email_subject,
-                    "ad_cta": ad_copy.cta,
-                    "tweets": social.twitter,
-                },
-                outcome="success",
+                event_type="email_sent",
+                payload={"to": draft["to"], "subject": draft["subject"], "cycle_id": cycle_id},
+                outcome="sent",
             )
+        await self.publish(BusEvent(
+            type="cycle.completed",
+            payload={"cycle_id": cycle_id, "outcome": "sent"},
+        ))
+        await self._audit.log(
+            agent_id=self.agent_id,
+            event_type="outreach_complete",
+            payload={"email_count": len(drafts), "cycle_id": cycle_id},
+            outcome="success",
+        )
+
+    async def _on_decision_rejected(self, event: BusEvent) -> None:
+        event_cycle_id = event.payload.get("cycle_id")
+        if event_cycle_id and event_cycle_id == self._current_cycle_id:
+            cycle_id = self._current_cycle_id
+            self._current_cycle_id = None
+            self._pending_drafts = []
             await self.publish(BusEvent(
-                type="task.completed",
-                payload={
-                    "task_type": "launch_campaign",
-                    "product_name": name,
-                    "completed_by": self.agent_id,
-                },
+                type="cycle.completed",
+                payload={"cycle_id": cycle_id, "outcome": "rejected"},
             ))
-        finally:
-            await self._emit_status("active")
+            await self._audit.log(
+                agent_id=self.agent_id,
+                event_type="outreach_rejected",
+                payload={"cycle_id": cycle_id},
+                outcome="rejected",
+            )
+        else:
+            await self._audit.log(
+                agent_id=self.agent_id,
+                event_type="decision.rejected",
+                payload=event.payload,
+                outcome="acknowledged",
+            )
+
+    async def _on_task_created(self, event: BusEvent) -> None:
+        if event.payload.get("assignee") != self.agent_id:
+            return
+        await self._audit.log(
+            agent_id=self.agent_id,
+            event_type="task.created",
+            payload=event.payload,
+            outcome="acknowledged",
+        )
