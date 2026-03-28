@@ -26,3 +26,4 @@ class Decision(Base):
     decided_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    cycle_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)

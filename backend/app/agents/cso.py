@@ -3,107 +3,152 @@ from __future__ import annotations
 from app.agents.base import BaseAgent
 from app.schemas.events import BusEvent
 from app.services.llm import LLMService
-from app.agents.workers.market_scanner import MarketScanner
-from app.agents.workers.opportunity_evaluator import OpportunityEvaluator
 
 
 class CSO(BaseAgent):
-    """Chief Strategy Officer — market research, opportunity identification.
+    """Chief Strategy Officer — Lead Supremacy AI prospect research.
 
-    Phase 3: triggers real market research on decision.approved(task=market_research).
-    When Board approves top opportunity, publishes task.created for CTO + CMO.
+    Listens for cycle.start, runs lead research (stub: real Google Ads
+    Transparency Center scraping is a follow-on task), scores leads, and
+    presents the top list to the Board for approval.
+
+    On Board approval  → publishes leads.approved for CMO.
+    On Board rejection → publishes cycle.completed {outcome: rejected}.
     """
 
     agent_id = "cso"
 
     def __init__(self, bus, audit, llm: LLMService | None = None) -> None:
         super().__init__(bus=bus, audit=audit)
-        self._scanner = MarketScanner(llm=llm) if llm else None
-        self._evaluator = OpportunityEvaluator()
+        self._llm = llm
+        self._current_cycle_id: str | None = None
+        self._pending_leads: list = []
 
     async def on_start(self) -> None:
+        await self.subscribe("cycle.start", self._on_cycle_start)
         await self.subscribe("decision.approved", self._on_decision_approved)
         await self.subscribe("decision.rejected", self._on_decision_rejected)
         await self._audit.log(agent_id=self.agent_id, event_type="agent_started", payload={})
 
-    async def _on_decision_approved(self, event: BusEvent) -> None:
-        task = event.payload.get("task")
-        if task == "market_research":
-            await self._run_market_research()
-        elif task == "approve_opportunity":
-            await self._on_opportunity_approved(event)
-        else:
+    async def _on_cycle_start(self, event: BusEvent) -> None:
+        if self._current_cycle_id is not None:
             await self._audit.log(
                 agent_id=self.agent_id,
-                event_type="decision.approved",
-                payload=event.payload,
-                outcome="acknowledged",
-            )
-
-    async def _run_market_research(self) -> None:
-        if self._scanner is None:
-            await self._audit.log(
-                agent_id=self.agent_id,
-                event_type="market_research_skipped",
-                payload={"reason": "no LLM configured"},
-                outcome="skipped",
+                event_type="cycle_start_ignored",
+                payload={
+                    "reason": "cycle already active",
+                    "active_cycle_id": self._current_cycle_id,
+                    "new_cycle_id": event.payload.get("cycle_id"),
+                },
             )
             return
+        self._current_cycle_id = event.payload["cycle_id"]
+        await self._run_lead_research()
+
+    async def _run_lead_research(self) -> None:
         await self._emit_status("thinking")
         try:
-            scan_result = await self.with_retry(
-                lambda: self._scanner.scan(),
-                context="market_scan",
-            )
-            evaluation = await self._evaluator.evaluate(scan_result.opportunities)
-            top = evaluation.top_opportunity
+            leads = self._stub_leads()
+            self._pending_leads = leads
             await self._audit.log(
                 agent_id=self.agent_id,
-                event_type="market_research_complete",
-                payload={"top_opportunity": top.name, "rationale": evaluation.rationale},
+                event_type="lead_research_complete",
+                payload={"lead_count": len(leads), "cycle_id": self._current_cycle_id},
                 outcome="success",
             )
+            description = "\n".join(
+                f"• {l['name']} ({l['city']}) — Score: {l['score']}/100\n  {l['reason']}"
+                for l in leads
+            )
             await self.request_decision(
-                title=f"Pursue opportunity: {top.name}",
-                description=(
-                    f"{evaluation.rationale}\n\n"
-                    f"ARR estimate: ${top.estimated_arr:,.0f}. "
-                    f"Target market: {top.target_market}."
-                ),
+                title=f"Lead list ready: {len(leads)} prospects scored",
+                description=description,
                 extra_payload={
-                    "task": "approve_opportunity",
-                    "opportunity_name": top.name,
-                    "opportunity_description": top.description,
+                    "task": "approve_leads",
+                    "cycle_id": self._current_cycle_id,
                 },
             )
         finally:
             await self._emit_status("active")
 
-    async def _on_opportunity_approved(self, event: BusEvent) -> None:
-        name = event.payload.get("opportunity_name", "Unknown")
-        description = event.payload.get("opportunity_description", "")
-        await self._audit.log(
-            agent_id=self.agent_id,
-            event_type="opportunity_approved",
-            payload=event.payload,
-            outcome="success",
-        )
-        for task_type, assignee in [("build_product", "cto"), ("launch_campaign", "cmo")]:
+    def _stub_leads(self) -> list:
+        """Stub lead data. Replace with real Google Ads Transparency Center scraping."""
+        return [
+            {
+                "name": "Premier Plumbing Co",
+                "city": "Atlanta, GA",
+                "niche": "plumbing",
+                "score": 94,
+                "reason": "5+ active Google Ads, no AI voice agent detected in reviews",
+            },
+            {
+                "name": "Elite HVAC Services",
+                "city": "Dallas, TX",
+                "niche": "hvac",
+                "score": 91,
+                "reason": "Heavy ad spend, reviews mention slow response times",
+            },
+            {
+                "name": "QuickFix Electrical",
+                "city": "Phoenix, AZ",
+                "niche": "electrical",
+                "score": 88,
+                "reason": "Active ads, missed-call complaints in reviews",
+            },
+            {
+                "name": "Metro Roofing LLC",
+                "city": "Chicago, IL",
+                "niche": "roofing",
+                "score": 85,
+                "reason": "Seasonal ad surge, no automation infrastructure visible",
+            },
+            {
+                "name": "Sunrise Landscaping",
+                "city": "Miami, FL",
+                "niche": "landscaping",
+                "score": 82,
+                "reason": "Local ads running, high review volume suggests strong lead flow",
+            },
+        ]
+
+    async def _on_decision_approved(self, event: BusEvent) -> None:
+        event_cycle_id = event.payload.get("cycle_id")
+        if event_cycle_id and event_cycle_id == self._current_cycle_id:
+            leads = self._pending_leads
+            cycle_id = self._current_cycle_id
+            self._current_cycle_id = None
+            self._pending_leads = []
             await self.publish(BusEvent(
-                type="task.created",
-                payload={
-                    "task_type": task_type,
-                    "assignee": assignee,
-                    "product_name": name,
-                    "product_description": description,
-                    "requested_by": self.agent_id,
-                },
+                type="leads.approved",
+                payload={"cycle_id": cycle_id, "leads": leads},
             ))
+            await self._audit.log(
+                agent_id=self.agent_id,
+                event_type="leads_approved",
+                payload={"cycle_id": cycle_id, "lead_count": len(leads)},
+                outcome="success",
+            )
 
     async def _on_decision_rejected(self, event: BusEvent) -> None:
-        await self._audit.log(
-            agent_id=self.agent_id,
-            event_type="decision.rejected",
-            payload=event.payload,
-            outcome="acknowledged",
-        )
+        event_cycle_id = event.payload.get("cycle_id")
+        if event_cycle_id and event_cycle_id == self._current_cycle_id:
+            cycle_id = self._current_cycle_id
+            self._current_cycle_id = None
+            self._pending_leads = []
+            await self.publish(BusEvent(
+                type="cycle.completed",
+                payload={"cycle_id": cycle_id, "outcome": "rejected"},
+            ))
+            await self._audit.log(
+                agent_id=self.agent_id,
+                event_type="leads_rejected",
+                payload={"cycle_id": cycle_id},
+                outcome="rejected",
+            )
+        else:
+            await self._audit.log(
+                agent_id=self.agent_id,
+                event_type="decision.rejected",
+                payload=event.payload,
+                outcome="acknowledged",
+            )

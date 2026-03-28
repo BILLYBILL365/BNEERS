@@ -45,9 +45,9 @@ async def runner(bus, session_factory):
 @pytest.mark.asyncio
 async def test_runner_starts_all_csuite_agents(runner):
     await runner.start()
-    assert len(runner.agents) == 5
+    assert len(runner.agents) == 4
     agent_ids = {a.agent_id for a in runner.agents.values()}
-    assert agent_ids == {"cso", "cto", "cmo", "cfo", "coo"}
+    assert agent_ids == {"cso", "cmo", "cfo", "coo"}
     assert all(a._running for a in runner.agents.values())
     await runner.stop()
 
@@ -94,7 +94,7 @@ async def test_runner_heartbeat_updates_all_agents(runner, bus):
         if not await bus.process_one():
             break
 
-    for agent_id in ["cso", "cto", "cmo", "cfo", "coo"]:
+    for agent_id in ["cso", "cmo", "cfo", "coo"]:
         assert agent_id in status_store
 
     await runner.stop()
@@ -108,6 +108,6 @@ async def test_runner_creates_agents_with_no_llm_when_key_missing(bus, session_f
     status_store: dict = {}
     runner.status_store = status_store
     await runner.start()
-    for agent_id in ["cso", "cto", "cmo", "cfo", "coo"]:
+    for agent_id in ["cso", "cmo", "cfo", "coo"]:
         assert agent_id in runner.agents
     await runner.stop()

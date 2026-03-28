@@ -131,7 +131,7 @@ async def test_watchdog_detects_overdue_agent(bus, db_session):
 
 @pytest.mark.asyncio
 async def test_all_csuite_agents_heartbeat(bus, session_factory):
-    """All 5 C-Suite agents heartbeat and update status store."""
+    """All C-Suite agents heartbeat and update status store."""
     audit = AuditService(session_factory=session_factory)
     runner = AgentRunner(bus=bus, audit=audit)
     status_store: dict = {}
@@ -144,7 +144,7 @@ async def test_all_csuite_agents_heartbeat(bus, session_factory):
         if not await bus.process_one():
             break
 
-    for agent_id in ["cso", "cto", "cmo", "cfo", "coo"]:
+    for agent_id in ["cso", "cmo", "cfo", "coo"]:
         assert agent_id in status_store, f"{agent_id} not in status store"
         assert status_store[agent_id]["last_seen"] is not None
 

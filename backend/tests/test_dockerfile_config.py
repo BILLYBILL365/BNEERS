@@ -81,5 +81,5 @@ def test_railway_json_files_have_required_fields():
         assert "deploy" in data, f"{rel_path}: missing 'deploy' section"
         assert data["deploy"]["healthcheckPath"] == healthcheck_path, \
             f"{rel_path}: wrong healthcheckPath"
-        assert data["deploy"]["healthcheckTimeout"] == 30, \
-            f"{rel_path}: healthcheckTimeout should be 30"
+        assert data["deploy"]["healthcheckTimeout"] == 120, \
+            f"{rel_path}: healthcheckTimeout should be 120"

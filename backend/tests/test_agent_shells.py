@@ -8,7 +8,6 @@ from app.schemas.events import BusEvent
 from app.services.audit import AuditService
 from app.services.spend_tracker import SpendTracker
 from app.agents.cso import CSO
-from app.agents.cto import CTO
 from app.agents.cmo import CMO
 from app.agents.cfo import CFO
 from app.agents.coo import COO
@@ -47,7 +46,6 @@ async def audit(session_factory):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("AgentClass,expected_id", [
     (CSO, "cso"),
-    (CTO, "cto"),
     (CMO, "cmo"),
     (CFO, "cfo"),
     (COO, "coo"),
@@ -62,7 +60,7 @@ async def test_agent_has_correct_id(AgentClass, expected_id, bus, audit):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("AgentClass", [CSO, CTO, CMO, CFO, COO])
+@pytest.mark.parametrize("AgentClass", [CSO, CMO, CFO, COO])
 async def test_agent_starts_without_error(AgentClass, bus, audit):
     if AgentClass == CFO:
         spend_tracker = SpendTracker(bus=bus, daily_cap_ads=1000.0, daily_cap_apis=500.0)
@@ -74,7 +72,7 @@ async def test_agent_starts_without_error(AgentClass, bus, audit):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("AgentClass", [CSO, CTO, CMO, CFO, COO])
+@pytest.mark.parametrize("AgentClass", [CSO, CMO, CFO, COO])
 async def test_agent_emits_status_on_start(AgentClass, bus, audit):
     if AgentClass == CFO:
         spend_tracker = SpendTracker(bus=bus, daily_cap_ads=1000.0, daily_cap_apis=500.0)
@@ -98,7 +96,8 @@ async def test_agent_emits_status_on_start(AgentClass, bus, audit):
 async def test_cso_subscribes_to_decision_events(bus, audit):
     cso = CSO(bus=bus, audit=audit)
     await cso.start()
-    # CSO should have handlers registered for decision.approved and decision.rejected
+    # CSO should have handlers registered for cycle.start, decision.approved, and decision.rejected
+    assert "cycle.start" in bus._handlers
     assert "decision.approved" in bus._handlers
     assert "decision.rejected" in bus._handlers
 

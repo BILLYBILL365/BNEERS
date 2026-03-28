@@ -53,10 +53,10 @@ async def approve_decision(decision_id: str, db: AsyncSession = Depends(get_db))
     await db.commit()
     await db.refresh(decision)
     if _bus:
-        await _bus.publish(BusEvent(
-            type="decision.approved",
-            payload={"decision_id": decision_id, "title": decision.title, "decided_by": "board"},
-        ))
+        payload = {"decision_id": decision_id, "title": decision.title, "decided_by": "board"}
+        if decision.cycle_id:
+            payload["cycle_id"] = decision.cycle_id
+        await _bus.publish(BusEvent(type="decision.approved", payload=payload))
     return decision
 
 
@@ -73,8 +73,8 @@ async def reject_decision(decision_id: str, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(decision)
     if _bus:
-        await _bus.publish(BusEvent(
-            type="decision.rejected",
-            payload={"decision_id": decision_id, "title": decision.title, "decided_by": "board"},
-        ))
+        payload = {"decision_id": decision_id, "title": decision.title, "decided_by": "board"}
+        if decision.cycle_id:
+            payload["cycle_id"] = decision.cycle_id
+        await _bus.publish(BusEvent(type="decision.rejected", payload=payload))
     return decision

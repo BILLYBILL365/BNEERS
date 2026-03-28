@@ -20,4 +20,5 @@ class DecisionRead(BaseModel):
     decided_by: str | None
     decided_at: datetime | None
     created_at: datetime
+    cycle_id: str | None = None
     model_config = {"from_attributes": True}

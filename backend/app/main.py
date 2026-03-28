@@ -10,8 +10,10 @@ from app.redis_bus import RedisBus
 from app.routers import tasks, decisions, agents, websocket
 from app.routers.agents import _agent_statuses
 from app.routers.decisions import set_bus
+from app.routers.cycles import router as cycles_router
 from app.services.audit import AuditService
 from app.runner import AgentRunner
+from app.scheduler import AgentScheduler, set_scheduler
 from app.services.discord_notifier import DiscordNotifier
 
 
@@ -20,17 +22,14 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
 
     if settings.TESTING:
-        yield  # Skip all setup in test mode
+        yield
         return
 
-    # Connect to Redis
     redis_client = AsyncRedis.from_url(settings.REDIS_URL)
     bus = RedisBus(redis_client=redis_client)
 
-    # Wire bus into decisions router (for publishing approved/rejected events)
     set_bus(bus)
 
-    # Start King Solomon Discord bot (no-op if DISCORD_BOT_TOKEN is empty)
     notifier = DiscordNotifier(
         bot_token=settings.DISCORD_BOT_TOKEN,
         approvals_channel_id=settings.DISCORD_APPROVALS_CHANNEL_ID,
@@ -41,9 +40,8 @@ async def lifespan(app: FastAPI):
     try:
         await asyncio.wait_for(notifier.start(), timeout=10.0)
     except asyncio.TimeoutError:
-        pass  # Bot failed to connect; handle_event will be a no-op until _client is ready
+        pass
 
-    # Subscribe notifier to bus events
     for event_type in (
         "decision.pending",
         "decision.approved",
@@ -53,14 +51,15 @@ async def lifespan(app: FastAPI):
         "agent.status",
         "agent.alert",
         "spend.exceeded",
+        "cycle.start",
+        "leads.approved",
+        "cycle.completed",
     ):
         await bus.subscribe(event_type, notifier.handle_event)
 
-    # Pass session factory to AuditService — each log() call opens its own session
     session_factory = get_session_factory()
     audit = AuditService(session_factory=session_factory)
 
-    # Start all C-Suite agents
     runner = AgentRunner(
         bus=bus,
         audit=audit,
@@ -74,12 +73,22 @@ async def lifespan(app: FastAPI):
     runner.status_store = _agent_statuses
     await runner.start()
 
-    # Run bus event loop as background task
+    # Start scheduler — after runner so agents are listening before first cycle.start
+    scheduler = AgentScheduler(
+        bus=bus,
+        audit=audit,
+        interval_seconds=settings.CYCLE_INTERVAL_SECONDS,
+    )
+    set_scheduler(scheduler)
+    await scheduler.start()
+
     bus_task = asyncio.create_task(bus.run_forever())
 
     yield  # App is running
 
-    # Shutdown
+    # Shutdown order: scheduler first (may publish), then bus, then agents/notifier
+    await scheduler.stop()
+    set_scheduler(None)
     bus_task.cancel()
     try:
         await bus_task
@@ -87,7 +96,6 @@ async def lifespan(app: FastAPI):
         pass
     await runner.stop()
     await notifier.stop()
-
     await redis_client.aclose()
 
 
@@ -104,6 +112,7 @@ app.include_router(tasks.router)
 app.include_router(decisions.router)
 app.include_router(agents.router)
 app.include_router(websocket.router)
+app.include_router(cycles_router)
 
 
 @app.get("/health")

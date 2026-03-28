@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     # Agent heartbeat timeout (seconds)
     AGENT_HEARTBEAT_TIMEOUT: int = 120
 
+    # Agent scheduler cycle interval (seconds)
+    CYCLE_INTERVAL_SECONDS: int = 21600  # 6 hours
+
     ANTHROPIC_API_KEY: str = ""
 
     # Model selection

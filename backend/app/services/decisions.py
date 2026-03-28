@@ -38,6 +38,7 @@ class DecisionService:
                 description=payload.get("description", ""),
                 requested_by=payload.get("requested_by", "unknown"),
                 status=DecisionStatus.PENDING,
+                cycle_id=payload.get("cycle_id"),
             )
             session.add(decision)
             await session.commit()
