@@ -29,4 +29,7 @@ export const api = {
   agents: {
     status: () => get<import("@/types").Agent[]>("/agents/status"),
   },
+  cycles: {
+    trigger: () => post<{ started: boolean; reason?: string }>("/cycles/trigger"),
+  },
 };

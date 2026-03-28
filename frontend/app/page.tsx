@@ -13,6 +13,8 @@ export default function MissionControl() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [decisions, setDecisions] = useState<Decision[]>([]);
+  const [cycleLoading, setCycleLoading] = useState(false);
+  const [cycleStatus, setCycleStatus] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -55,13 +57,38 @@ export default function MissionControl() {
     }
   };
 
+  const handleStartCycle = async () => {
+    setCycleLoading(true);
+    setCycleStatus(null);
+    try {
+      const result = await api.cycles.trigger();
+      if (result.started) {
+        setCycleStatus("Cycle started");
+      } else {
+        setCycleStatus(result.reason ?? "Not started");
+      }
+    } catch {
+      setCycleStatus("Error — check backend");
+    } finally {
+      setCycleLoading(false);
+      setTimeout(() => setCycleStatus(null), 3000);
+    }
+  };
+
   const activeAgents = agents.filter((a) => a.status === "active").length;
   const weeklyRevenue = 0;
   const tasksInProgress = tasks.filter((t) => t.status === "in_progress").length;
 
   return (
     <div className="min-h-screen bg-gray-950 text-base">
-      <TopBar agentCount={activeAgents} weeklyRevenue={weeklyRevenue} pendingApprovals={decisions.length} />
+      <TopBar
+        agentCount={activeAgents}
+        weeklyRevenue={weeklyRevenue}
+        pendingApprovals={decisions.length}
+        onStartCycle={handleStartCycle}
+        cycleStatus={cycleStatus}
+        cycleLoading={cycleLoading}
+      />
       <div className="p-6 grid grid-cols-4 gap-6">
         <div className="col-span-3 space-y-6">
           <KPICards weeklyRevenue={weeklyRevenue} activeCustomers={0} tasksInProgress={tasksInProgress} />
