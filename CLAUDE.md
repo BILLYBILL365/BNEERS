@@ -6,6 +6,8 @@ An autonomous multi-agent system ("Project Million") that runs AI agents organiz
 
 ## Repository Structure
 
+All paths below are relative to the repository root.
+
 ```
 ├── backend/           # FastAPI + Python 3.12
 │   ├── app/
@@ -48,7 +50,7 @@ An autonomous multi-agent system ("Project Million") that runs AI agents organiz
 | Backend | Python 3.12, FastAPI, SQLAlchemy (async), Alembic, Pydantic v2 |
 | Database | PostgreSQL 16 (asyncpg driver) |
 | Message Bus | Redis 7 (async, FIFO via lpush) |
-| AI | Anthropic Claude API (claude-sonnet-4-6 smart, claude-haiku-4-5 fast) |
+| AI | Anthropic Claude API (claude-sonnet-4-6 smart, claude-haiku-4-5-20251001 fast) |
 | Notifications | Discord bot ("King Solomon") |
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
 | Deployment | Railway (Docker), docker-compose for local dev |
@@ -66,7 +68,7 @@ docker compose up
 - PostgreSQL: localhost:5432
 - Redis: localhost:6379
 
-### Backend Only
+### Backend Only (requires PostgreSQL + Redis running)
 ```bash
 cd backend
 pip install -e ".[dev]"
@@ -93,7 +95,7 @@ pytest -x                 # stop on first failure
 - Tests use `TESTING=true` env var (set in `conftest.py`) which skips lifespan startup
 - Uses `fakeredis` for Redis, `aiosqlite` for DB in tests
 - pytest-asyncio with `asyncio_mode = "auto"` — all async tests run automatically
-- Test files: `backend/tests/` (30+ test files covering agents, services, routers, integration)
+- Test files: `backend/tests/` (~30 test files covering agents, services, routers, integration)
 
 ## Key Architectural Patterns
 
@@ -146,10 +148,4 @@ pytest -x                 # stop on first failure
 
 ## Environment Variables
 
-See `.env.example` for the full list. Key variables:
-- `DATABASE_URL` — PostgreSQL connection string
-- `REDIS_URL` — Redis connection string
-- `ANTHROPIC_API_KEY` — Leave empty for mock/no-llm mode
-- `CYCLE_INTERVAL_SECONDS` — Business cycle interval (default 21600 = 6h)
-- `DISCORD_BOT_TOKEN` — Leave empty to disable Discord notifications
-- Spending caps: `DAILY_HARD_CAP_ADS`, `DAILY_HARD_CAP_APIS`, `WEEKLY_SOFT_CAP_TOTAL`, `MONTHLY_HARD_CEILING`
+See `.env.example` for the full list and defaults. All config flows through `app/config.py` (pydantic-settings). Key variables: `DATABASE_URL`, `REDIS_URL`, `ANTHROPIC_API_KEY` (empty = mock mode), `DISCORD_BOT_TOKEN` (empty = disabled), `CYCLE_INTERVAL_SECONDS`, and spending caps (`DAILY_HARD_CAP_ADS`, `DAILY_HARD_CAP_APIS`, `WEEKLY_SOFT_CAP_TOTAL`, `MONTHLY_HARD_CEILING`).
